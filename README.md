@@ -19,6 +19,7 @@ MongoDB must run as a replica set (Prisma needs transactions). The local command
 ```sh
 yarn db:push                # create the collections and indexes from schema.prisma
 yarn staff:create --email you@theartistry360.com --name "Your Name"   # the first Super Admin
+yarn seed:voting            # the client's demo campaigns, contestants and requests (--reset to start over)
 ```
 
 Check `GET /api/v1/health` and the docs at `/api-docs`. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
@@ -77,8 +78,8 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
 | payments | `/payments` → `paymentRoutes` (orders, catalog, history, subscription, apple and google verify), `/payments` → `paymentWebhookRoutes` (PesaPal IPN, Apple and Google notifications) | `payments/` (orders, entitlements, pesapal, appStore, googlePlay) | 4, 4b |
 | academy | `/academy` → `academyRoutes` | `academy/` (live classes, ingest, chat) | 5 |
-| voting | `/voting` → `votingRoutes` | `voting/` (campaigns, votes, fraud checks) | 7 |
-| organisers | `/organisers` → `organiserRoutes` | `organisers/` | 7 |
+| voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns; free votes next) | `voting/` (campaigns, contestants, phase; votes and fraud checks next) | 7: campaigns ✅, free votes, paid votes |
+| organisers | `/organisers` → `organiserRoutes` (requests ✅; accounts, invites and payouts next) | `organisers/` | 7 |
 | notify | none (used by other services) | `notify/` (push via FCM, socket `invalidate`) | 1+ |
 | emails | none | `emails/` (zohoMail, templates, queue) | 1+ |
 

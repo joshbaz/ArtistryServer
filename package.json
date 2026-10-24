@@ -11,7 +11,8 @@
     "postinstall": "prisma generate",
     "postbuild": "prisma generate",
     "db:push": "prisma db push",
-    "staff:create": "node scripts/create-staff.mjs"
+    "staff:create": "node scripts/create-staff.mjs",
+    "seed:voting": "node scripts/seed-voting.mjs"
   },
   "author": "Joshua Kimbareeba",
   "license": "MIT",
