@@ -1,0 +1,145 @@
+openapi: 3.0.0
+info:
+  title: Artistry360 API
+  version: 1.0.0
+  description: |
+    The one API for theartistry360.com, the Studio, stream.theartistry360.com and the app.
+    Every endpoint path is listed in client/docs/12-backend-integration.md.
+
+    Every success is `{ data }`, or `{ data, meta }` for paged lists; every failure is
+    `{ error: { code, message, details?, requestId } }`.
+    Signed-in routes take `Authorization: Bearer <accessToken>` (15 minutes, realm `member` or `admin`).
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Development server
+  - url: https://api.theartistry360.com/api/v1
+    description: Production
+tags:
+  - name: System
+  - name: Studio auth
+    description: |
+      The Studio's door (admin realm). The access token comes back in the body; the refresh token only
+      travels in the httpOnly a360_rt_staff cookie, scoped to /api/v1/auth/studio. Every refresh rotates
+      it; the previous one works for 30 seconds more, and after that presenting it revokes the session.
+      Sign-in is limited to 5 failed tries per 15 minutes per IP and email.
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Whether the database and Redis answer
+      responses:
+        '200':
+          description: Everything is up
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Something is down
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /auth/studio/login:
+    post:
+      tags: [Studio auth]
+      summary: Sign in with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Signed in; sets the a360_rt_staff cookie
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudioSession' }
+        '401': { description: 'INVALID_CREDENTIALS', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: 'ACCOUNT_SUSPENDED', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: 'Field errors in details.fieldErrors', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: 'Too many failed tries', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /auth/studio/refresh:
+    post:
+      tags: [Studio auth]
+      summary: Trade the refresh cookie for a new access token
+      description: Rotates the cookie. Inside the 30-second grace window it answers with no Set-Cookie.
+      responses:
+        '200':
+          description: A new access token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudioSession' }
+        '401': { description: 'SESSION_ENDED (cookie cleared)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: 'ACCOUNT_SUSPENDED, or an unknown Origin', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /auth/studio/logout:
+    post:
+      tags: [Studio auth]
+      summary: End this device's session and clear the cookie
+      responses:
+        '204': { description: Signed out }
+  /auth/studio/me:
+    get:
+      tags: [Studio auth]
+      summary: The signed-in staff member
+      security: [{ bearer: [] }]
+      responses:
+        '200':
+          description: The admin
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/AdminUser' }
+        '401': { description: Signed out, session ended or account suspended }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, example: NOT_FOUND }
+            message: { type: string }
+            details: { type: object }
+            requestId: { type: string }
+    AdminUser:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [super-admin, content-manager, finance, moderator] }
+    StudioSession:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            accessToken: { type: string, description: 'Admin-realm JWT, 15 minutes' }
+            expiresIn: { type: integer, example: 900 }
+            admin: { $ref: '#/components/schemas/AdminUser' }
+    Health:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            status: { type: string, enum: [ok, degraded] }
+            checks:
+              type: object
+              properties:
+                database: { type: string, enum: [up, down] }
+                redis: { type: string, enum: [up, down] }
+            uptime: { type: integer, description: Seconds since start }
