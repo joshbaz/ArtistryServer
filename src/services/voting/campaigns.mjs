@@ -2,6 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
 import { campaignEndsAt, campaignPhase, isDay } from './phase.mjs';
+import { campaignHasOrders, pendingVotingPayments, revenueByCampaign } from '../payments/revenue.mjs';
 
 /**
  * Voting campaigns (client/docs/10-voting.md). Every figure the clients show
@@ -35,11 +36,19 @@ const standingsFor = async (campaignIds) => {
 
 const iso = (d) => (d ? d.toISOString() : null);
 
+/** Each organiser's logo, for campaigns without their own. */
+const organizerLogos = async (campaigns) => {
+    const ids = [...new Set(campaigns.map((c) => c.organizerId).filter(Boolean))];
+    if (!ids.length) return new Map();
+    const rows = await prisma.organizer.findMany({ where: { id: { in: ids } }, select: { id: true, logo: true } });
+    return new Map(rows.map((o) => [o.id, o.logo]));
+};
+
 /**
  * What /voting reads. Revenue, the organiser request and the take-down note
  * stay in the Studio.
  */
-const toPublic = (c, board, now = new Date()) => {
+const toPublic = (c, board, now = new Date(), organizerLogo = '') => {
     const status = campaignPhase(c, now);
     return {
         id: c.id,
@@ -59,7 +68,8 @@ const toPublic = (c, board, now = new Date()) => {
         vipTicketPerk: c.vipTicketPerk,
         importedVotes: c.importedVotes,
         closedAt: iso(c.closedAt),
-        logo: c.logo,
+        // The campaign's own logo, else its organiser's.
+        logo: c.logo || organizerLogo || '',
         prize: c.prize,
         rules: c.rules,
         status,
@@ -70,21 +80,37 @@ const toPublic = (c, board, now = new Date()) => {
     };
 };
 
-/** What the Studio reads: everything, with revenue by source. Payments arrive with PesaPal (build step 3); until then only imported revenue counts. */
-const toStudio = (c, board, now = new Date()) => ({
-    ...toPublic(c, board, now),
+const NO_REVENUE = { votesUGX: 0, vipUGX: 0, orders: 0, vipVoters: 0 };
+
+/** What the Studio reads: everything, with revenue by source (completed payments, plus money taken before the platform). */
+const toStudio = (c, board, now = new Date(), organizerLogo = '', money = NO_REVENUE) => ({
+    ...toPublic(c, board, now, organizerLogo),
     importedRevenueUGX: c.importedRevenueUGX,
     requestId: c.requestId ?? undefined,
     organizerId: c.organizerId ?? undefined,
     takenDown: c.takenDown ? { at: iso(c.takenDown.at), reason: c.takenDown.reason } : null,
-    revenueFromVotesUGX: 0,
-    revenueFromVipUGX: 0,
-    revenueUGX: c.importedRevenueUGX,
-    orders: 0,
-    vipVoters: 0,
+    revenueFromVotesUGX: money.votesUGX,
+    revenueFromVipUGX: money.vipUGX,
+    revenueUGX: c.importedRevenueUGX + money.votesUGX + money.vipUGX,
+    orders: money.orders,
+    vipVoters: money.vipVoters,
 });
 
-const studioView = async (c) => toStudio(c, (await standingsFor([c.id])).get(c.id));
+/**
+ * The Studio's view of several campaigns at once (also the organiser portal's).
+ * @param {object[]} campaigns - Campaign rows
+ */
+export const studioViews = async (campaigns) => {
+    const ids = campaigns.map((c) => c.id);
+    const [boards, logos, money] = await Promise.all([standingsFor(ids), organizerLogos(campaigns), revenueByCampaign(ids)]);
+    const now = new Date();
+    return campaigns.map((c) => toStudio(c, boards.get(c.id), now, logos.get(c.organizerId), money.get(c.id)));
+};
+
+export const studioView = async (c) => (await studioViews([c]))[0];
+
+/** A campaign's contestants, leaderboard order. */
+export const standingsOf = async (campaignId) => (await standingsFor([campaignId])).get(campaignId);
 
 const findCampaign = async (id) => {
     const campaign = await prisma.campaign.findUnique({ where: { id } });
@@ -96,7 +122,7 @@ const findCampaign = async (id) => {
  * The rules every campaign write meets. `next` is the campaign as it would
  * be saved; `current` is what's stored now (none when creating).
  */
-const checkCampaign = async (patch, next, current) => {
+export const checkCampaign = async (patch, next, current) => {
     // A draft may wait for its dates; a published campaign needs both, in order.
     const publishing = next.publishStatus === 'published';
     for (const d of [next.startDate, next.endDate]) {
@@ -120,30 +146,25 @@ const checkCampaign = async (patch, next, current) => {
 /** Every published campaign, for /voting. */
 export const listPublished = async () => {
     const campaigns = await prisma.campaign.findMany({ where: { publishStatus: 'published' }, orderBy: { startDate: 'desc' } });
-    const boards = await standingsFor(campaigns.map((c) => c.id));
+    const [boards, logos] = await Promise.all([standingsFor(campaigns.map((c) => c.id)), organizerLogos(campaigns)]);
     const now = new Date();
-    return campaigns.map((c) => toPublic(c, boards.get(c.id), now));
+    return campaigns.map((c) => toPublic(c, boards.get(c.id), now, logos.get(c.organizerId)));
 };
 
 /** One published campaign with its leaderboard. Drafts are a 404, as if they didn't exist. */
 export const getPublished = async (id) => {
     const campaign = await prisma.campaign.findUnique({ where: { id } });
     if (!campaign || campaign.publishStatus !== 'published') throw notFound();
-    const board = (await standingsFor([id])).get(id);
-    return { campaign: toPublic(campaign, board), participants: board };
+    const [board, logos] = await Promise.all([standingsOf(id), organizerLogos([campaign])]);
+    return { campaign: toPublic(campaign, board, new Date(), logos.get(campaign.organizerId)), participants: board };
 };
 
 /* Studio */
 
-export const listForStudio = async () => {
-    const campaigns = await prisma.campaign.findMany({ orderBy: { startDate: 'desc' } });
-    const boards = await standingsFor(campaigns.map((c) => c.id));
-    const now = new Date();
-    return campaigns.map((c) => toStudio(c, boards.get(c.id), now));
-};
+export const listForStudio = async () => studioViews(await prisma.campaign.findMany({ orderBy: { startDate: 'desc' } }));
 
 export const getStats = async () => {
-    const [all, contestants] = await Promise.all([listForStudio(), prisma.contestant.count()]);
+    const [all, contestants, pendingPayments] = await Promise.all([listForStudio(), prisma.contestant.count(), pendingVotingPayments()]);
     const published = all.filter((c) => c.publishStatus === 'published');
     const now = Date.now();
     return {
@@ -154,8 +175,8 @@ export const getStats = async () => {
         upcoming: published.filter((c) => c.status === 'upcoming').length,
         ended: published.filter((c) => c.status === 'finished').length,
         drafts: all.length - published.length,
-        // Payments waiting for PesaPal's IPN: none until build step 3.
-        pendingPayments: 0,
+        // Payments still waiting for PesaPal's word.
+        pendingPayments,
         endingSoon: published.filter((c) => c.status === 'ongoing' && campaignEndsAt(c.endDate).getTime() - now < HOURS_48).length,
     };
 };
@@ -204,11 +225,11 @@ export const restore = async (id) => {
     return studioView(campaign);
 };
 
-/** Only a campaign nobody has voted in can be deleted (payments will count too, from build step 3). */
+/** Only a campaign nobody has voted in or paid for can be deleted. */
 export const deleteCampaign = async (id) => {
     await findCampaign(id);
     const voted = await prisma.contestant.count({ where: { campaignId: id, platformVotes: { gt: 0 } } });
-    if (voted) throw new AppError("This campaign has votes, so it can't be deleted. End it instead.", 409);
+    if (voted || (await campaignHasOrders(id))) throw new AppError("This campaign has votes or payments, so it can't be deleted. End it instead.", 409);
     await prisma.$transaction([
         prisma.contestant.deleteMany({ where: { campaignId: id } }),
         prisma.campaign.delete({ where: { id } }),
@@ -218,3 +239,18 @@ export const deleteCampaign = async (id) => {
 
 /** Whether a campaign exists, for the other voting services. */
 export const assertCampaign = findCampaign;
+
+/**
+ * A campaign that's taking votes now, and a contestant in it: what every
+ * vote, free or paid, must find before it counts.
+ */
+export const openForVotes = async (campaignId, participantId) => {
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign || campaign.publishStatus !== 'published') throw notFound();
+    const phase = campaignPhase(campaign);
+    if (phase === 'upcoming') throw new AppError("Voting hasn't opened yet.", 409, { code: 'not_open' });
+    if (phase === 'finished') throw new AppError('Voting has closed for this campaign.', 409, { code: 'closed' });
+    const contestant = participantId ? await prisma.contestant.findUnique({ where: { id: participantId } }) : null;
+    if (participantId && contestant?.campaignId !== campaignId) throw new AppError("That contestant isn't in this campaign.", 422);
+    return { campaign, contestant };
+};

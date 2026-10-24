@@ -142,3 +142,85 @@ model OrganiserRequest {
 
   @@index([status])
 }
+
+// ── Organisers ── A partner who runs their own campaigns from /organizer (organizer realm).
+// Accounts are made by a Super Admin from an approved request; the invite link sets the password.
+model Organizer {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgName         String
+  contactName     String
+  email           String    @unique
+  phone           String    @default("")
+  // None until the invite is accepted.
+  passwordHash    String?
+  // invited | active | disabled
+  status          String    @default("invited")
+  // Their share of their campaigns' platform revenue, set by a Super Admin.
+  sharePercent    Int       @default(70)
+  logo            String    @default("")
+  // The current invite: only its hash is kept; the link itself is shown once, to the Studio.
+  // Indexed, not unique: on MongoDB a unique index counts every missing value as a duplicate null.
+  inviteTokenHash String?
+  inviteExpiresAt DateTime?
+  inviteUsedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([inviteTokenHash])
+}
+
+// An organiser asking to be paid their share of an ended campaign; the Studio pays and marks it paid.
+model PayoutRequest {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  organizerId   String    @db.ObjectId
+  campaignId    String    @db.ObjectId
+  amountUGX     Int
+  // MTN MoMo | Airtel Money | Bank transfer
+  method        String
+  accountName   String
+  accountNumber String
+  // requested | paid
+  status        String    @default("requested")
+  requestedAt   DateTime  @default(now())
+  paidAt        DateTime?
+  // The mobile money or bank reference, entered when marked paid.
+  reference     String?
+  paidBy        String?   @db.ObjectId
+
+  @@index([organizerId])
+  @@index([campaignId])
+}
+
+// ── Payments ── One order per checkout: bought votes now, VIP and streaming later.
+// Only PesaPal's word (the IPN, or our own status check when the payer comes back) moves it on from pending.
+model PaymentOrder {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  // Our merchant reference, quoted to PesaPal and to the payer.
+  reference        String    @unique
+  // voting (later: streaming)
+  module           String
+  // votes | vip
+  kind             String
+  campaignId       String?   @db.ObjectId
+  participantId    String?   @db.ObjectId
+  votes            Int       @default(0)
+  amountUGX        Int
+  currency         String    @default("UGX")
+  // pending | completed | failed | reversed
+  status           String    @default("pending")
+  // As PesaPal reports it: MTN MoMo, Airtel Money, Visa…
+  method           String    @default("")
+  provider         String    @default("pesapal")
+  trackingId       String?
+  confirmationCode String?
+  // Why it failed, when we decided (amount_mismatch, expired, provider_unreachable)
+  statusNote       String?
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
+  lastCheckedAt    DateTime?
+  updatedAt        DateTime  @updatedAt
+
+  @@index([module, status])
+  @@index([campaignId])
+  @@index([trackingId])
+}

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { redis } from '../utils/redis.mjs';
+import { expireStaleOrders } from '../services/payments/orders.mjs';
 
 const MINUTE = 60 * 1000;
 
@@ -10,7 +11,10 @@ const MINUTE = 60 * 1000;
  * Add tasks as `{ name, every, run, done }`; `done` turns run's result into a log line (or nothing).
  * One-off timed work (a title's release, a class reminder) goes on BullMQ as a delayed job instead.
  */
-const TASKS = [];
+const TASKS = [
+    // Checkouts nobody finished get a last check with PesaPal, and are closed after a day.
+    { name: 'expire-unpaid-orders', every: 15 * MINUTE, run: expireStaleOrders, done: (n) => n && `Closed ${n} unpaid checkout${n === 1 ? '' : 's'}` },
+];
 
 const timers = [];
 

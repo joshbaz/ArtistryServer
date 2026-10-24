@@ -9,20 +9,26 @@ export const RATE_LIMITS = {
     loginPerIp: { windowMinutes: 15, limit: 60, keyedBy: 'IP, all attempts' },
     studioLogin: { windowMinutes: 15, limit: 5, keyedBy: 'IP + email, failed attempts only' },
     forms: { windowMinutes: 60, limit: 10, keyedBy: 'IP' },
+    checkout: { windowMinutes: 60, limit: 30, keyedBy: 'IP, checkouts PesaPal accepted' },
 };
 
 /**
  * Public writes anyone can send without signing in, each counted per IP:
- * booking requests, organiser requests, the contact form and support reports.
+ * booking requests, organiser requests, the contact form, support reports,
+ * and starting a checkout.
  */
 const PUBLIC_RULES = [
     { name: 'forms', path: /\/(talent\/bookings|organisers\/requests|enquiries|support\/reports)$/, message: 'Thanks, we have plenty from you for now. Please try again later.' },
+    // Starting a checkout calls PesaPal; refused ones (voting closed, a typo) don't count.
+    { name: 'checkout', path: /\/payments\/orders$/, message: 'Too many payments started from this connection. Please try again in a while.', skipFailedRequests: true },
 ];
 
 // Every member sign-in, sign-up, OTP and password-reset POST (12-backend-integration.md, auth).
 const AUTH_PATH = /\/auth\/(login|register|google|apple|otp\/request|otp\/verify|password\/forgot|password\/reset)$/;
 // The Studio's sign-in gets a stricter limit of its own (17-api-server.md, section 5).
 const STUDIO_LOGIN_PATH = /\/auth\/studio\/login$/;
+// An organiser's sign-in and accepting an invite (which sets a password).
+const ORGANIZER_AUTH_PATH = /\/auth\/organizer\/(login|invite\/[\w-]+)$/;
 
 // ipKeyGenerator groups IPv6 addresses by subnet so a client can't rotate through them
 const clientIp = (req) => ipKeyGenerator(req.ip || 'unknown');
@@ -93,14 +99,14 @@ export const createRateLimiters = () => {
     const authLimiter = (req, res, next) => {
         if (req.method !== 'POST') return next();
         const path = pathOf(req);
-        const perAccount = STUDIO_LOGIN_PATH.test(path) ? studioLoginLimiter : AUTH_PATH.test(path) ? loginPerEmailLimiter : null;
+        const perAccount = STUDIO_LOGIN_PATH.test(path) ? studioLoginLimiter : AUTH_PATH.test(path) || ORGANIZER_AUTH_PATH.test(path) ? loginPerEmailLimiter : null;
         if (!perAccount) return next();
         loginPerIpLimiter(req, res, (err) => (err ? next(err) : perAccount(req, res, next)));
     };
 
     const publicLimiters = PUBLIC_RULES.map((rule) => ({
         path: rule.path,
-        run: limiter(rule.name, RATE_LIMITS[rule.name], { keyGenerator: clientIp, handler: rejected(rule.message) }),
+        run: limiter(rule.name, RATE_LIMITS[rule.name], { keyGenerator: clientIp, handler: rejected(rule.message), skipFailedRequests: Boolean(rule.skipFailedRequests) }),
     }));
 
     /** Applies each public rule's limiter to its own POSTs only. */
