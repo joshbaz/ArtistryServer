@@ -4,6 +4,7 @@ import { roleAllows } from '../utils/permissions.mjs';
 import { verifyAccessToken } from '../utils/tokens.mjs';
 import { isSessionOpen } from '../services/auth/sessions.mjs';
 import { findActiveStaff, toAdminUser } from '../services/auth/staff.mjs';
+import { findActiveOrganizer } from '../services/organisers/accounts.mjs';
 
 const bearer = (req) => req.get('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? null;
 
@@ -20,6 +21,21 @@ export const requireAdmin = async (req, res, next) => {
     const [open, staff] = await Promise.all([isSessionOpen(payload.sid), findActiveStaff(payload.id)]);
     if (!open || !staff) return next(signInFirst());
     req.admin = toAdminUser(staff);
+    req.sessionId = payload.sid;
+    next();
+};
+
+/**
+ * An organiser route (/organizer): an organizer-realm token, an open session
+ * and an active account. Sets `req.organizer` (the account row, no secrets)
+ * and `req.sessionId`.
+ */
+export const requireOrganizer = async (req, res, next) => {
+    const payload = verifyAccessToken(bearer(req), 'organizer');
+    if (!payload) return next(signInFirst());
+    const [open, organizer] = await Promise.all([isSessionOpen(payload.sid), findActiveOrganizer(payload.id)]);
+    if (!open || !organizer) return next(signInFirst());
+    req.organizer = organizer;
     req.sessionId = payload.sid;
     next();
 };

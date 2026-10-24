@@ -10,6 +10,7 @@ const prisma = new PrismaClient({
     omit: {
         staff: { passwordHash: true },
         session: { tokenHash: true, previousHash: true },
+        organizer: { passwordHash: true, inviteTokenHash: true },
     },
 });
 

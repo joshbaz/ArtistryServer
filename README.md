@@ -19,10 +19,11 @@ MongoDB must run as a replica set (Prisma needs transactions). The local command
 ```sh
 yarn db:push                # create the collections and indexes from schema.prisma
 yarn staff:create --email you@theartistry360.com --name "Your Name"   # the first Super Admin
-yarn seed:voting            # the client's demo campaigns, contestants and requests (--reset to start over)
+yarn seed:voting            # the client's demo campaigns, contestants, requests, organisers and payouts (--reset to start over);
+                            # demo organisers sign in with the password demo-organiser
 ```
 
-Check `GET /api/v1/health` and the docs at `/api-docs`. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
+Check `GET /api/v1/health` and the docs at `/api-docs`. For payments, put the PesaPal sandbox keys in `.env` (`PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`); on a laptop PesaPal can't reach the IPN, so returning to the campaign page confirms the payment instead. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
 
 ## Layout
 
@@ -76,10 +77,10 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | stream site | `/stream` → `streamSiteRoutes` (`stream/site`) | `streaming/` | 2 |
 | comments | `/streaming/titles/:id/comments` → `commentRoutes` (`mergeParams`) | `comments/` | 3 |
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
-| payments | `/payments` → `paymentRoutes` (orders, catalog, history, subscription, apple and google verify), `/payments` → `paymentWebhookRoutes` (PesaPal IPN, Apple and Google notifications) | `payments/` (orders, entitlements, pesapal, appStore, googlePlay) | 4, 4b |
+| payments | `/payments` → `paymentRoutes`: vote orders, the payer's status check, PesaPal's IPN, the Studio's voting transactions ✅; streaming orders, store billing, history and subscriptions next | `payments/` (pesapal, orders, revenue) | 4, 4b; voting ✅ |
 | academy | `/academy` → `academyRoutes` | `academy/` (live classes, ingest, chat) | 5 |
 | voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns; free votes next) | `voting/` (campaigns, contestants, phase; votes and fraud checks next) | 7: campaigns ✅, free votes, paid votes |
-| organisers | `/organisers` → `organiserRoutes` (requests ✅; accounts, invites and payouts next) | `organisers/` | 7 |
+| organisers | `/organisers` → `organiserRoutes` (public requests), `/auth/organizer` → `organizerAuthRoutes` (sign-in, invites), `/organizer` → `organizerPortalRoutes` (their campaigns, contestants, results, payouts, profile), `/voting/studio/organizers` + `/payouts` → `studioOrganizerRoutes` (nested in `studioVotingRoutes`) | `organisers/` (requests, accounts, portal, payouts, admin) | 7: ✅ |
 | notify | none (used by other services) | `notify/` (push via FCM, socket `invalidate`) | 1+ |
 | emails | none | `emails/` (zohoMail, templates, queue) | 1+ |
 
@@ -133,13 +134,13 @@ export const create = async (req, res) => {
 | Error envelope | `app.mjs` + `utils/AppError.js` | `{ error: { code, message, details?, requestId } }`. Prisma P2002 becomes 409 |
 | Request id | `app.mjs` | `req.id`, the `X-Request-Id` header, and in every error and 5xx log line |
 | Validation | `middleware/validate.mjs` | 422 with `details.fieldErrors` |
-| Auth guards | `middleware/auth.mjs` | `requireAdmin` (open session, active account → `req.admin`), `allow(...roles)` (MOU 3C roles; a Super Admin always passes), `knownOrigin` for cookie-only routes. `requireMember` and `optionalMember` come with member auth |
+| Auth guards | `middleware/auth.mjs` | `requireAdmin` (open session, active account → `req.admin`), `requireOrganizer` (→ `req.organizer`), `allow(...roles)` (MOU 3C roles; a Super Admin always passes), `knownOrigin` for cookie-only routes. `requireMember` and `optionalMember` come with member auth |
 | Sessions | `services/auth/sessions.mjs` | Both realms: one row per device, refresh rotation with a 30 s grace, reuse revokes the session |
-| Refresh cookies | `utils/cookies.mjs` | `a360_rt_staff` (`/api/v1/auth/studio`), `a360_rt_member` (`/api/v1/auth`) |
+| Refresh cookies | `utils/cookies.mjs` | `a360_rt_staff` (`/api/v1/auth/studio`), `a360_rt_organizer` (`/api/v1/auth/organizer`), `a360_rt_member` (`/api/v1/auth`) |
 | Tokens | `utils/tokens.mjs` | 15-minute access JWT signed with the realm's own secret; `aud` = realm, `sid` = session, `client` = web or mobile |
 | Rate limits | `utils/rateLimits.js` | Redis-backed. Add a public POST's path to `PUBLIC_RULES` |
 | Realtime | `utils/sockets.js` | `/public`, `/member`, `/admin`. `invalidate`, `invalidateSite`, `invalidateMember`, emitted after commit and debounced 250 ms |
-| Webhooks | `middleware/rawBody.mjs` (step 4) | Keeps the raw body so PesaPal, Apple, Google and video-provider signatures can be verified |
+| Webhooks | `controllers/paymentsController.mjs#ipn`; `middleware/rawBody.mjs` later | PesaPal's IPN carries no signature, so it is never trusted: it names an order and the server asks PesaPal (`services/payments/orders.mjs#settle`). Apple, Google and the video provider will need raw bodies for their signatures |
 | Audit | `middleware/audit.mjs` + `services/system/audit.mjs` (step 6) | Every admin write: who, what, when |
 
 ## Adding an endpoint

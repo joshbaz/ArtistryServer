@@ -6,14 +6,22 @@
  *   yarn seed:voting            only if there are no campaigns yet
  *   yarn seed:voting --reset    delete every campaign, contestant and request first
  *
- * The demo ids (camp_001, vp_001_01…) become MongoDB ids. Organiser links
- * (organizerId) are left out until organiser accounts exist (build step 4).
+ * The demo ids (camp_001, vp_001_01…) become MongoDB ids. Demo organisers
+ * who had a password get DEMO_ORGANIZER_PASSWORD; an invited one gets a
+ * fresh invite link, printed at the end.
  */
 import { parseArgs } from 'node:util';
 import prisma from '../src/utils/db.mjs';
 import { votingCampaignsSeed } from '../../client/src/data/votingCampaigns.js';
 import { contestantsSeed } from '../../client/src/data/votingParticipants.js';
 import { organiserRequests } from '../../client/src/data/organiserRequests.js';
+import { organizersSeed } from '../../client/src/data/organizers.js';
+import { payoutRequestsSeed } from '../../client/src/data/payoutRequests.js';
+import { hashPassword } from '../src/services/auth/passwords.mjs';
+import { issueInvite } from '../src/services/organisers/accounts.mjs';
+import { env } from '../src/env.mjs';
+
+const DEMO_ORGANIZER_PASSWORD = 'demo-organiser';
 
 const { values } = parseArgs({ options: { reset: { type: 'boolean', default: false } } });
 
@@ -29,6 +37,9 @@ const REQUEST_KEYS = ['orgName', 'contactName', 'email', 'phone', 'campaignType'
 
 try {
     if (values.reset) {
+        await prisma.payoutRequest.deleteMany();
+        await prisma.session.deleteMany({ where: { realm: 'organizer' } });
+        await prisma.organizer.deleteMany();
         await prisma.contestant.deleteMany();
         await prisma.campaign.deleteMany();
         await prisma.organiserRequest.deleteMany();
@@ -37,10 +48,35 @@ try {
         process.exit(0);
     }
 
+    const organizerIds = new Map();
+    const invites = [];
+    const demoHash = await hashPassword(DEMO_ORGANIZER_PASSWORD);
+    for (const o of organizersSeed) {
+        const row = await prisma.organizer.create({
+            data: {
+                orgName: o.orgName,
+                contactName: o.contactName,
+                email: o.email.toLowerCase(),
+                phone: o.phone,
+                status: o.status,
+                sharePercent: o.sharePercent,
+                logo: o.logo,
+                createdAt: new Date(o.createdAt),
+                ...(o.password ? { passwordHash: demoHash } : {}),
+            },
+        });
+        organizerIds.set(o.id, row.id);
+        if (!o.password) invites.push(`${o.orgName}: ${env.APP_URL}/organizer/invite/${await issueInvite(row.id)}`);
+    }
+
     const campaignIds = new Map();
     for (const c of votingCampaignsSeed) {
         const row = await prisma.campaign.create({
-            data: { ...pick(c, CAMPAIGN_KEYS), ...(c.closedAt ? { closedAt: new Date(c.closedAt) } : {}) },
+            data: {
+                ...pick(c, CAMPAIGN_KEYS),
+                ...(c.closedAt ? { closedAt: new Date(c.closedAt) } : {}),
+                ...(c.organizerId && organizerIds.has(c.organizerId) ? { organizerId: organizerIds.get(c.organizerId) } : {}),
+            },
         });
         campaignIds.set(c.id, row.id);
     }
@@ -61,7 +97,27 @@ try {
         });
     }
 
-    console.info(`Seeded ${campaignIds.size} campaigns, ${await prisma.contestant.count()} contestants and ${organiserRequests.length} organiser requests.`);
+    for (const p of payoutRequestsSeed) {
+        if (!organizerIds.has(p.organizerId) || !campaignIds.has(p.campaignId)) continue;
+        await prisma.payoutRequest.create({
+            data: {
+                organizerId: organizerIds.get(p.organizerId),
+                campaignId: campaignIds.get(p.campaignId),
+                amountUGX: p.amountUGX,
+                method: p.method,
+                accountName: p.accountName,
+                accountNumber: p.accountNumber,
+                status: p.status,
+                requestedAt: new Date(p.requestedAt),
+                ...(p.paidAt ? { paidAt: new Date(p.paidAt) } : {}),
+                ...(p.reference ? { reference: p.reference } : {}),
+            },
+        });
+    }
+
+    console.info(`Seeded ${campaignIds.size} campaigns, ${await prisma.contestant.count()} contestants, ${organiserRequests.length} organiser requests, ${organizerIds.size} organisers and ${await prisma.payoutRequest.count()} payout requests.`);
+    console.info(`Demo organisers sign in at /organizer/login with their email and the password "${DEMO_ORGANIZER_PASSWORD}" (e.g. organiser@mtu.ug).`);
+    for (const line of invites) console.info(`Invite, ${line}`);
 } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

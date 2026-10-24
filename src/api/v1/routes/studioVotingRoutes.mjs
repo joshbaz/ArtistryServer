@@ -4,6 +4,7 @@ import { allow, requireAdmin } from '../../../middleware/auth.mjs';
 import { idParam } from '../schemas/common.mjs';
 import * as schema from '../schemas/voting.mjs';
 import * as controller from '../controllers/studioVotingController.mjs';
+import studioOrganizerRoutes from './studioOrganizerRoutes.mjs';
 
 /**
  * Studio › Voting. Every Studio role may look; a Content Manager edits
@@ -15,6 +16,8 @@ const id = validate(idParam, 'params');
 const editor = allow('content-manager');
 const superAdmin = allow();
 
+// Organisers and payouts (studioOrganizerRoutes.mjs) share this mount, and check their own roles.
+router.use(studioOrganizerRoutes);
 router.use(requireAdmin);
 
 router.get('/campaigns', controller.listCampaigns);

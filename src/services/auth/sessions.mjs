@@ -23,6 +23,7 @@ const WITH_HASHES = { tokenHash: false, previousHash: false };
 const LIFETIMES = {
     admin: { idle: 7 * DAY, max: 30 * DAY },
     member: { idle: 30 * DAY, max: 180 * DAY },
+    organizer: { idle: 7 * DAY, max: 30 * DAY },
 };
 
 const ended = () => new AppError('Your session has ended. Sign in again.', 401, { code: 'SESSION_ENDED' });
@@ -37,7 +38,7 @@ const issue = (session, refreshToken) => ({
 
 /**
  * Open a session for someone who just signed in.
- * @param {{ realm: 'member' | 'admin', subjectId: string, client?: 'web' | 'mobile', userAgent?: string }} who
+ * @param {{ realm: 'member' | 'admin' | 'organizer', subjectId: string, client?: 'web' | 'mobile', userAgent?: string }} who
  */
 export const startSession = async ({ realm, subjectId, client = 'web', userAgent }) => {
     const now = Date.now();
@@ -65,7 +66,7 @@ export const startSession = async ({ realm, subjectId, client = 'web', userAgent
 /**
  * Swap a refresh token for a new access token and, normally, a new refresh
  * token. `refreshToken` is null in the grace case: keep the one already held.
- * @param {'member' | 'admin'} realm
+ * @param {'member' | 'admin' | 'organizer'} realm
  * @param {string} presented
  */
 export const refreshSession = async (realm, presented) => {
@@ -106,7 +107,7 @@ export const revokeSession = (id, reason = 'signed_out') =>
 /**
  * End the session a refresh token belongs to, for signing out. Only the
  * current or previous token can do it, so a guessed id can't sign anyone out.
- * @param {'member' | 'admin'} realm
+ * @param {'member' | 'admin' | 'organizer'} realm
  * @param {string} presented
  */
 export const endSessionByToken = async (realm, presented) => {

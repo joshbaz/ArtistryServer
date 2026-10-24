@@ -2,8 +2,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../env.mjs';
 
-/** The two sign-in realms. A token for one never works on the other's routes. */
-export const REALMS = ['member', 'admin'];
+/** The sign-in realms. A token for one never works on another's routes. */
+export const REALMS = ['member', 'admin', 'organizer'];
 
 const ACCESS_TTL_SECONDS = 15 * 60;
 
@@ -11,12 +11,13 @@ const ACCESS_TTL_SECONDS = 15 * 60;
 const SECRETS = {
     admin: env.ADMIN_TOKEN_SECRET,
     member: env.MEMBER_TOKEN_SECRET,
+    organizer: env.ORGANIZER_TOKEN_SECRET,
 };
 
 /**
  * Sign a 15-minute access token. `aud` is the realm, `sid` the session it
  * belongs to, and `client` is web or mobile.
- * @param {{ id: string, realm: 'member' | 'admin', sid: string, client?: 'web' | 'mobile' }} who
+ * @param {{ id: string, realm: 'member' | 'admin' | 'organizer', sid: string, client?: 'web' | 'mobile' }} who
  * @returns {{ accessToken: string, expiresIn: number }}
  */
 export const signAccessToken = ({ id, realm, sid, client = 'web' }) => ({
@@ -28,8 +29,8 @@ export const signAccessToken = ({ id, realm, sid, client = 'web' }) => ({
  * The token's payload with its realm, or null when it is missing, expired or
  * forged. Pass `realm` to accept only that realm's tokens.
  * @param {string} token
- * @param {'member' | 'admin'} [realm]
- * @returns {{ id: string, sid: string, realm: 'member' | 'admin', client: string } | null}
+ * @param {'member' | 'admin' | 'organizer'} [realm]
+ * @returns {{ id: string, sid: string, realm: 'member' | 'admin' | 'organizer', client: string } | null}
  */
 export const verifyAccessToken = (token, realm) => {
     if (!token) return null;

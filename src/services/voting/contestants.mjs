@@ -54,3 +54,53 @@ export const deleteContestant = async (id) => {
     await prisma.contestant.delete({ where: { id } });
     invalidateSite('campaigns', { id: current.campaignId });
 };
+
+/**
+ * Several at once (an organiser's pasted list or CSV), numbered after the
+ * last one. The rows are already validated, so either all are added or none.
+ * @param {string} campaignId
+ * @param {{ fullName: string, photo: string, bio: string }[]} rows
+ */
+export const addContestants = async (campaignId, rows) => {
+    await assertCampaign(campaignId);
+    const last = await prisma.contestant.findFirst({ where: { campaignId }, orderBy: { number: 'desc' }, select: { number: true } });
+    const start = (last?.number ?? 0) + 1;
+    const created = await saving(start, () =>
+        prisma.$transaction(rows.map((row, i) => prisma.contestant.create({ data: { ...row, campaignId, number: start + i } }))),
+    );
+    invalidateSite('campaigns', { id: campaignId });
+    return created.map(toContestant);
+};
+
+/**
+ * Swap numbers with the neighbour above (-1) or below (+1); the ballot order
+ * follows. Returns the campaign's contestants in their new order.
+ * @param {string} id
+ * @param {-1 | 1} step
+ */
+export const moveContestant = async (id, step) => {
+    const row = await prisma.contestant.findUnique({ where: { id } });
+    if (!row) throw notFound();
+    const other = await prisma.contestant.findFirst({
+        where: { campaignId: row.campaignId, number: step < 0 ? { lt: row.number } : { gt: row.number } },
+        orderBy: { number: step < 0 ? 'desc' : 'asc' },
+    });
+    if (other) {
+        // Through a free number, so the unique (campaign, number) index never sees two at once.
+        await prisma.$transaction([
+            prisma.contestant.update({ where: { id: row.id }, data: { number: -row.number } }),
+            prisma.contestant.update({ where: { id: other.id }, data: { number: row.number } }),
+            prisma.contestant.update({ where: { id: row.id }, data: { number: other.number } }),
+        ]);
+        invalidateSite('campaigns', { id: row.campaignId });
+    }
+    const rows = await prisma.contestant.findMany({ where: { campaignId: row.campaignId }, orderBy: { number: 'asc' } });
+    return rows.map(toContestant);
+};
+
+/** A contestant's campaign id, for ownership checks. */
+export const campaignOfContestant = async (id) => {
+    const row = await prisma.contestant.findUnique({ where: { id }, select: { campaignId: true } });
+    if (!row) throw notFound();
+    return row.campaignId;
+};

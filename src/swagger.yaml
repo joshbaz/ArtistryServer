@@ -29,6 +29,16 @@ tags:
       Every campaign, drafts included, and its contestants (admin realm). Any Studio role reads; a Content Manager
       edits; taking down, restoring and deleting are a Super Admin's. Full rules: client/docs/12-backend-integration.md.
   - name: Organiser requests
+  - name: Payments
+    description: |
+      PesaPal checkouts. Only PesaPal's word completes an order: its IPN, or the server's own status check when the
+      payer returns. Votes are added once, in the same transaction that completes the order.
+  - name: Organiser auth
+    description: The organizer realm, shaped like Studio auth. Cookie a360_rt_organizer on /api/v1/auth/organizer.
+  - name: Organiser dashboard
+    description: The signed-in organiser's own campaigns, contestants, results, payouts and profile. Someone else's campaign is a 404.
+  - name: Studio organisers
+    description: Organiser accounts, invites, access and share (Super Admin); payout requests (Finance).
 paths:
   /health:
     get:
@@ -239,6 +249,267 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [pending, approved, declined] }, campaignId: { type: string } } } } } }
       responses:
         '200': { description: OK }
+  /auth/organizer/login:
+    post:
+      tags: [Organiser auth]
+      summary: Sign in
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
+      responses:
+        '200': { description: '{ accessToken, expiresIn, organizer } and the cookie' }
+  /auth/organizer/refresh:
+    post:
+      tags: [Organiser auth]
+      summary: Trade the cookie for a new access token
+      responses:
+        '200': { description: OK }
+  /auth/organizer/logout:
+    post:
+      tags: [Organiser auth]
+      summary: Sign out this device
+      responses:
+        '204': { description: Signed out }
+  /auth/organizer/me:
+    get:
+      tags: [Organiser auth]
+      summary: The signed-in organiser
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /auth/organizer/invite/{token}:
+    get:
+      tags: [Organiser auth]
+      summary: Who an invite is for (410 when used or expired)
+      parameters: [{ in: path, name: token, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Organiser auth]
+      summary: Accept: set the password and sign in
+      parameters: [{ in: path, name: token, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [password], properties: { contactName: { type: string }, password: { type: string, minLength: 8 } } } } } }
+      responses:
+        '200': { description: OK }
+  /organizer/campaigns:
+    get:
+      tags: [Organiser dashboard]
+      summary: My campaigns with their setup checklist
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /organizer/campaigns/{id}:
+    get:
+      tags: [Organiser dashboard]
+      summary: One of my campaigns
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+    patch:
+      tags: [Organiser dashboard]
+      summary: Edit the content
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: OK }
+  /organizer/campaigns/{id}/publish:
+    post:
+      tags: [Organiser dashboard]
+      summary: Publish or back to draft
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [published], properties: { published: { type: boolean } } } } } }
+      responses:
+        '200': { description: OK }
+  /organizer/campaigns/{id}/results:
+    get:
+      tags: [Organiser dashboard]
+      summary: Standings and money
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+  /organizer/campaigns/{id}/contestants:
+    get:
+      tags: [Organiser dashboard]
+      summary: Contestants in number order
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Organiser dashboard]
+      summary: Add one or many (all or none)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [rows], properties: { rows: { type: array, maxItems: 200, items: { type: object } } } } } } }
+      responses:
+        '201': { description: The new contestants }
+  /organizer/contestants/{id}:
+    patch:
+      tags: [Organiser dashboard]
+      summary: Edit a contestant
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Organiser dashboard]
+      summary: Remove a contestant with no votes
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '204': { description: Removed }
+  /organizer/contestants/{id}/move:
+    post:
+      tags: [Organiser dashboard]
+      summary: Swap with the neighbour above or below
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [step], properties: { step: { type: integer, enum: [-1, 1] } } } } } }
+      responses:
+        '200': { description: OK }
+  /organizer/payments:
+    get:
+      tags: [Organiser dashboard]
+      summary: Payments for my campaigns
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /organizer/payouts:
+    get:
+      tags: [Organiser dashboard]
+      summary: What each campaign owes me, and my requests
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Organiser dashboard]
+      summary: Ask for what a finished campaign owes
+      security: [{ bearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [campaignId, method, accountName, accountNumber] } } } }
+      responses:
+        '201': { description: The request }
+  /organizer/me:
+    get:
+      tags: [Organiser dashboard]
+      summary: My profile
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+    patch:
+      tags: [Organiser dashboard]
+      summary: Contact name, phone, logo
+      security: [{ bearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: OK }
+  /organizer/me/password:
+    post:
+      tags: [Organiser dashboard]
+      summary: Change my password (signs out other sessions)
+      security: [{ bearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [current, next] } } } }
+      responses:
+        '204': { description: Changed }
+  /voting/studio/organizers:
+    get:
+      tags: [Studio organisers]
+      summary: Every organiser with campaigns and open payouts
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /voting/studio/organizers/approve:
+    post:
+      tags: [Studio organisers]
+      summary: Approve a request: account, draft campaign, invite
+      security: [{ bearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [requestId, campaign], properties: { requestId: { type: string }, campaign: { $ref: '#/components/schemas/CampaignInput' } } } } } }
+      responses:
+        '201': { description: '{ organizer, campaign, inviteToken }' }
+  /voting/studio/organizers/{id}/invite:
+    post:
+      tags: [Studio organisers]
+      summary: A fresh invite link (also a password reset)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ organizer, inviteToken }' }
+  /voting/studio/organizers/{id}/access:
+    post:
+      tags: [Studio organisers]
+      summary: Turn access off or on
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [enabled], properties: { enabled: { type: boolean } } } } } }
+      responses:
+        '200': { description: OK }
+  /voting/studio/organizers/{id}/share:
+    post:
+      tags: [Studio organisers]
+      summary: Set the revenue share
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [sharePercent], properties: { sharePercent: { type: integer, minimum: 0, maximum: 100 } } } } } }
+      responses:
+        '200': { description: OK }
+  /voting/studio/payouts:
+    get:
+      tags: [Studio organisers]
+      summary: Payout requests, open first
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /voting/studio/payouts/{id}/paid:
+    post:
+      tags: [Studio organisers]
+      summary: Mark paid with the payment reference
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reference], properties: { reference: { type: string } } } } } }
+      responses:
+        '200': { description: OK }
+  /payments/orders:
+    post:
+      tags: [Payments]
+      summary: Start buying votes (no sign-in; rate limited)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind, campaignId, participantId, votes], properties: { kind: { type: string, enum: [votes] }, campaignId: { type: string }, participantId: { type: string }, votes: { type: integer, minimum: 1, maximum: 10000 } } } } } }
+      responses:
+        '201': { description: "'{ reference, redirectUrl }': send the payer to redirectUrl" }
+        '409': { description: 'not_open or closed' }
+        '502': { description: PesaPal unreachable }
+    get:
+      tags: [Payments]
+      summary: Voting payments for the Studio (Finance)
+      security: [{ bearer: [] }]
+      parameters: [{ in: query, name: module, required: true, schema: { type: string, enum: [voting] } }]
+      responses:
+        '200': { description: Newest first }
+  /payments/orders/{reference}:
+    get:
+      tags: [Payments]
+      summary: The payer's own order, checked with PesaPal while pending
+      parameters: [{ in: path, name: reference, required: true, schema: { type: string, example: A360-MVML4FY7-FF3C5E } }]
+      responses:
+        '200': { description: "'{ reference, status, kind, votes, amountUGX, campaignId, participantId }'" }
+        '404': { description: No such order }
+  /payments/pesapal/ipn:
+    get:
+      tags: [Payments]
+      summary: PesaPal's IPN (registered as GET)
+      parameters:
+        - { in: query, name: OrderTrackingId, schema: { type: string } }
+        - { in: query, name: OrderMerchantReference, schema: { type: string } }
+        - { in: query, name: OrderNotificationType, schema: { type: string } }
+      responses:
+        '200': { description: "'{ orderNotificationType, orderTrackingId, orderMerchantReference, status: 200 }'" }
+        '500': { description: 'Same shape with status 500: PesaPal retries' }
+    post:
+      tags: [Payments]
+      summary: PesaPal's IPN, as POST
+      responses:
+        '200': { description: As GET }
 components:
   securitySchemes:
     bearer:

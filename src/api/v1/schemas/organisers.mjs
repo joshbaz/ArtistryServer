@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { objectId, text } from './common.mjs';
+import { createCampaignBody } from './voting.mjs';
 
 // The same lists and messages as the client's organizerSchema (pages/6.voting/sections/organizer/organizerSchema.js).
 export const CAMPAIGN_TYPES = ['Beauty Pageant', 'Music Competition', 'Film Festival', 'Acting / Film', 'School / Education', 'Sports', 'Other'];
@@ -27,3 +28,21 @@ export const updateRequestBody = z.object({
     status: z.enum(['pending', 'approved', 'declined']).optional(),
     campaignId: objectId.optional(),
 }).refine((b) => b.status || b.campaignId, 'Send a status or a campaign.');
+
+/* Studio › Voting › Organisers */
+
+/** POST voting/studio/organizers/approve: the request, and the draft campaign to make for it. */
+export const approveBody = z.object({
+    requestId: objectId,
+    campaign: createCampaignBody,
+});
+
+export const accessBody = z.object({ enabled: z.boolean({ error: 'Say whether access is on.' }) });
+
+export const shareBody = z.object({
+    sharePercent: z.coerce.number({ error: 'The share is a whole number from 0 to 100.' }).int('The share is a whole number from 0 to 100.').min(0, 'The share is a whole number from 0 to 100.').max(100, 'The share is a whole number from 0 to 100.'),
+});
+
+export const markPaidBody = z.object({
+    reference: text(120).pipe(z.string().min(1, 'Enter the payment reference.')),
+});

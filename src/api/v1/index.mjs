@@ -5,16 +5,22 @@ import studioAuthRoutes from './routes/studioAuthRoutes.mjs';
 import studioVotingRoutes from './routes/studioVotingRoutes.mjs';
 import votingRoutes from './routes/votingRoutes.mjs';
 import organiserRoutes from './routes/organiserRoutes.mjs';
+import organizerAuthRoutes from './routes/organizerAuthRoutes.mjs';
+import organizerPortalRoutes from './routes/organizerPortalRoutes.mjs';
+import paymentRoutes from './routes/paymentRoutes.mjs';
 
 
 const router = express.Router();
-// More specific paths first: /auth/studio before /auth, /voting/studio before /voting (server/README.md, The areas).
+// More specific paths first: /auth/studio and /auth/organizer before /auth, /voting/studio before /voting (server/README.md, The areas).
 const endpoints = [
     { path: '/health', router: healthRoutes },
     { path: '/auth/studio', router: studioAuthRoutes },
+    { path: '/auth/organizer', router: organizerAuthRoutes },
     { path: '/voting/studio', router: studioVotingRoutes },
     { path: '/voting', router: votingRoutes },
     { path: '/organisers', router: organiserRoutes },
+    { path: '/organizer', router: organizerPortalRoutes },
+    { path: '/payments', router: paymentRoutes },
 ];
 
 endpoints.forEach((endpoint) => router.use(endpoint.path, requestLogger, endpoint.router));

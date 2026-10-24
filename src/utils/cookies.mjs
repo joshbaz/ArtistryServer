@@ -8,6 +8,7 @@ import { env } from '../env.mjs';
 const REFRESH_COOKIES = {
     admin: { name: 'a360_rt_staff', path: '/api/v1/auth/studio' },
     member: { name: 'a360_rt_member', path: '/api/v1/auth' },
+    organizer: { name: 'a360_rt_organizer', path: '/api/v1/auth/organizer' },
 };
 
 const base = (realm) => ({
