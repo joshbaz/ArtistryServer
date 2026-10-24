@@ -11,6 +11,8 @@ export default function validate(schema, source = 'body') {
     return (req, res, next) => {
         const result = schema.safeParse(req[source] ?? {});
         if (!result.success) {
+            // A malformed id in the path names nothing that exists.
+            if (source === 'params') return next(new AppError('We could not find that.', 404));
             const fieldErrors = {};
             for (const issue of result.error.issues) {
                 const key = issue.path.join('.') || '_';
