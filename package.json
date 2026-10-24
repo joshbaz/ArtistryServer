@@ -16,6 +16,9 @@
   "author": "Joshua Kimbareeba",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "concurrently": "^10.0.6",
     "esbuild": "^0.28.2",
