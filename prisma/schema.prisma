@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// One document (id "app"): what GET app/config hands the Flutter app (17-api-server.md, section 9).
+model AppConfig {
+  id                 String   @id @map("_id")
+  minVersionIos      String   @default("1.0.0")
+  minVersionAndroid  String   @default("1.0.0")
+  flags              Json     @default("{}")
+  maintenanceMessage String?
+  updatedAt          DateTime @updatedAt
+}
+
+// ── Auth ──
+
+// A Studio account (admin realm). Roles are MOU 3C's: src/utils/permissions.mjs.
+model Staff {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         String
+  // active | suspended. A suspended account can't sign in, and its open sessions stop at the next request.
+  status       String    @default("active")
+  lastSignInAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// One signed-in device, for either realm. The refresh token rotates on every use; only hashes are kept.
+// Presenting the previous token after its 30-second grace means it was stolen, so the session is revoked.
+model Session {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  // member | admin; subjectId is the Member's or the Staff's id
+  realm         String
+  subjectId     String    @db.ObjectId
+  tokenHash     String
+  previousHash  String?
+  rotatedAt     DateTime?
+  // web | mobile
+  client        String    @default("web")
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  // Slides forward on each refresh, never past maxExpiresAt.
+  expiresAt     DateTime
+  maxExpiresAt  DateTime
+  revokedAt     DateTime?
+  // signed_out | reuse | signed_out_everywhere | password_changed | suspended
+  revokedReason String?
+
+  @@index([realm, subjectId])
+}
