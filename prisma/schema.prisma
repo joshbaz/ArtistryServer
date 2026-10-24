@@ -57,3 +57,88 @@ model Session {
 
   @@index([realm, subjectId])
 }
+
+// ── Voting ── (client/docs/10-voting.md)
+
+type TakenDown {
+  at     DateTime
+  reason String
+}
+
+// A voting campaign. Status (upcoming, ongoing, finished), totals and the winner are worked out from
+// these fields and the contestants (services/voting/campaigns.mjs), never stored.
+model Campaign {
+  id                 String     @id @default(auto()) @map("_id") @db.ObjectId
+  title              String
+  description        String     @default("")
+  // YYYY-MM-DD, Kampala time: voting runs from 00:00 on startDate to 23:59:59 on endDate. Empty on a draft still waiting for dates.
+  startDate          String     @default("")
+  endDate            String     @default("")
+  image              String     @default("")
+  category           String     @default("")
+  organizer          String     @default("The Artistry360")
+  // official | verified
+  organizerBadge     String     @default("official")
+  // draft | published. Drafts never leave the Studio.
+  publishStatus      String     @default("draft")
+  featured           Boolean    @default(false)
+  // Locked once voting opens.
+  votePriceUGX       Int
+  vipPriceUGX        Int
+  vipDailyVotes      Int
+  vipTicketPerk      String     @default("")
+  // Set by hand only when the result was decided elsewhere.
+  winner             String?
+  // Totals from before per-vote tracking.
+  importedVotes      Int        @default(0)
+  importedRevenueUGX Int        @default(0)
+  requestId          String?    @db.ObjectId
+  closedAt           DateTime?
+  organizerId        String?    @db.ObjectId
+  logo               String     @default("")
+  prize              String     @default("")
+  rules              String     @default("")
+  takenDown          TakenDown?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([publishStatus])
+}
+
+model Contestant {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  campaignId    String   @db.ObjectId
+  fullName      String
+  number        Int
+  photo         String   @default("")
+  bio           String   @default("")
+  // Votes carried over from before per-vote tracking.
+  importedVotes Int      @default(0)
+  // Votes cast on the platform: only the vote services increment it.
+  platformVotes Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([campaignId, number])
+}
+
+// The public "Run a campaign" form, reviewed in Studio › Voting › Requests.
+model OrganiserRequest {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgName      String
+  contactName  String
+  email        String
+  phone        String
+  campaignType String
+  campaignName String   @default("")
+  contestants  String
+  start        String
+  description  String   @default("")
+  // pending | approved | declined
+  status       String   @default("pending")
+  campaignId   String?  @db.ObjectId
+  submittedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+}

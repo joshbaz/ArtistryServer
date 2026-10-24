@@ -22,6 +22,13 @@ tags:
       travels in the httpOnly a360_rt_staff cookie, scoped to /api/v1/auth/studio. Every refresh rotates
       it; the previous one works for 30 seconds more, and after that presenting it revokes the session.
       Sign-in is limited to 5 failed tries per 15 minutes per IP and email.
+  - name: Voting
+    description: Published campaigns and their leaderboards. Anyone may read.
+  - name: Studio voting
+    description: |
+      Every campaign, drafts included, and its contestants (admin realm). Any Studio role reads; a Content Manager
+      edits; taking down, restoring and deleting are a Super Admin's. Full rules: client/docs/12-backend-integration.md.
+  - name: Organiser requests
 paths:
   /health:
     get:
@@ -96,6 +103,142 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/AdminUser' }
         '401': { description: Signed out, session ended or account suspended }
+  /voting/campaigns:
+    get:
+      tags: [Voting]
+      summary: Published campaigns
+      responses:
+        '200': { description: OK }
+  /voting/campaigns/{id}:
+    get:
+      tags: [Voting]
+      summary: One published campaign with its leaderboard
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '200': { description: '{ campaign, participants }' }
+        '404': { description: Not found or a draft }
+  /voting/studio/campaigns:
+    get:
+      tags: [Studio voting]
+      summary: Every campaign with revenue
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Studio voting]
+      summary: Create a draft campaign
+      security: [{ bearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CampaignInput' } } } }
+      responses:
+        '201': { description: The draft }
+  /voting/studio/stats:
+    get:
+      tags: [Studio voting]
+      summary: Totals for the Voting overview
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /voting/studio/campaigns/{id}:
+    patch:
+      tags: [Studio voting]
+      summary: Edit or publish
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CampaignInput' } } } }
+      responses:
+        '200': { description: OK }
+        '409': { description: 'too_few_contestants or rules_locked' }
+        '422': { description: 'Field errors, or dates missing or out of order' }
+    delete:
+      tags: [Studio voting]
+      summary: Delete a campaign nobody has voted in (Super Admin)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '204': { description: Deleted }
+        '409': { description: It has votes }
+  /voting/studio/campaigns/{id}/close:
+    post:
+      tags: [Studio voting]
+      summary: End voting now, or reopen
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [closed], properties: { closed: { type: boolean } } } } } }
+      responses:
+        '200': { description: OK }
+  /voting/studio/campaigns/{id}/take-down:
+    post:
+      tags: [Studio voting]
+      summary: Take off /voting with a reason (Super Admin)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } } }
+      responses:
+        '200': { description: OK }
+  /voting/studio/campaigns/{id}/restore:
+    post:
+      tags: [Studio voting]
+      summary: Put a taken-down campaign back (Super Admin)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '200': { description: OK }
+  /voting/studio/campaigns/{id}/contestants:
+    get:
+      tags: [Studio voting]
+      summary: Contestants in number order
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Studio voting]
+      summary: Add a contestant (next number unless one is given)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [fullName], properties: { fullName: { type: string }, number: { type: integer }, photo: { type: string }, bio: { type: string } } } } } }
+      responses:
+        '201': { description: The contestant }
+        '409': { description: number_taken }
+  /voting/studio/contestants/{id}:
+    patch:
+      tags: [Studio voting]
+      summary: Edit a contestant
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { fullName: { type: string }, number: { type: integer }, photo: { type: string }, bio: { type: string } } } } } }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Studio voting]
+      summary: Remove a contestant with no votes
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '204': { description: Removed }
+        '409': { description: They have votes }
+  /organisers/requests:
+    post:
+      tags: [Organiser requests]
+      summary: Send a "Run a campaign" request (public, rate limited)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [orgName, contactName, email, phone, campaignType, contestants, start, agreed] } } } }
+      responses:
+        '201': { description: '{ id, status }' }
+    get:
+      tags: [Organiser requests]
+      summary: Every request, newest first
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: OK }
+  /organisers/requests/{id}:
+    patch:
+      tags: [Organiser requests]
+      summary: Approve, decline or reopen (Super Admin)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [pending, approved, declined] }, campaignId: { type: string } } } } } }
+      responses:
+        '200': { description: OK }
 components:
   securitySchemes:
     bearer:
@@ -114,6 +257,27 @@ components:
             message: { type: string }
             details: { type: object }
             requestId: { type: string }
+    CampaignInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        startDate: { type: string, example: '2026-11-01', description: 'YYYY-MM-DD, Kampala time' }
+        endDate: { type: string, example: '2026-11-30' }
+        image: { type: string, description: 'https:// link or image data URL' }
+        category: { type: string }
+        organizer: { type: string }
+        organizerBadge: { type: string, enum: [official, verified] }
+        publishStatus: { type: string, enum: [draft, published], description: 'PATCH only' }
+        featured: { type: boolean }
+        votePriceUGX: { type: integer }
+        vipPriceUGX: { type: integer }
+        vipDailyVotes: { type: integer }
+        vipTicketPerk: { type: string }
+        winner: { type: string }
+        logo: { type: string }
+        prize: { type: string }
+        rules: { type: string }
     AdminUser:
       type: object
       properties:
