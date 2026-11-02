@@ -45,6 +45,17 @@ const envSchema = z.object({
     APPLE_KEY_ID: z.string().length(10, "APPLE_KEY_ID is the 10-character Key ID").optional(),
     // The .p8 key downloaded with APPLE_KEY_ID, relative to server/. Needed to revoke Apple sign-in when an account is deleted.
     APPLE_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+
+    // Video for live classes (services/video). Without a token, the Studio's stream setup says it isn't connected yet.
+    VIDEO_PROVIDER: z.enum(["mux"]).default("mux"),
+    MUX_TOKEN_ID: z.string().min(1).optional(),
+    MUX_TOKEN_SECRET: z.string().min(1).optional(),
+    MUX_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Signed playback for members-only and pay-per-view classes: the key's id and its base64 private key, as Mux shows them.
+    MUX_SIGNING_KEY_ID: z.string().min(1).optional(),
+    MUX_SIGNING_PRIVATE_KEY: z.string().min(1).optional(),
+    // Only to point tests at a stand-in for Mux's API.
+    MUX_API_URL: z.url().optional(),
 });
 
 // A blank line in .env (KEY="") means "not set", so optional settings can be left empty.

@@ -438,20 +438,32 @@ model Booking {
 
 // A scheduled live class (MOU 3D). The stream itself comes from the video provider, once chosen.
 model LiveClass {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  title           String
-  instructor      String   @default("")
-  startsAt        DateTime
-  durationMinutes Int
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  instructor       String    @default("")
+  startsAt         DateTime
+  durationMinutes  Int
   // free | subscription | ppv
-  tier            String   @default("subscription")
-  priceUGX        Int      @default(0)
-  description     String   @default("")
+  tier             String    @default("subscription")
+  priceUGX         Int       @default(0)
+  description      String    @default("")
   // scheduled | live | ended | cancelled
-  status          String   @default("scheduled")
-  recordReplay    Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  status           String    @default("scheduled")
+  recordReplay     Boolean   @default(true)
+  // Its stream at the video provider (services/video), made the first time the Studio opens Streaming Setup.
+  // The stream key is never stored: it's fetched from the provider each time.
+  videoProvider    String?
+  liveStreamId     String?
+  playbackId       String?
+  // Playback links that expire (members-only and pay-per-view, when a signing key is set)
+  signedPlayback   Boolean   @default(false)
+  // The recording, once the provider has it
+  replayPlaybackId String?
+  wentLiveAt       DateTime?
+  endedAt          DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([startsAt])
+  @@index([liveStreamId])
 }

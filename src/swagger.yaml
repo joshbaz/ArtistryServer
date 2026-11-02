@@ -712,13 +712,36 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [value], properties: { value: { type: string, maxLength: 40 } } } } } }
       responses:
         '200': { description: '{ value }: the existing spelling if it was already there' }
+  /academy/timetable:
+    get:
+      tags: [Website]
+      summary: The public timetable
+      responses:
+        '200': { description: '{ upcoming[], replays[] }: each { id, title, instructor, startsAt, durationMinutes, tier, priceUGX, description, status, recordReplay, watch: live | replay | null }' }
+  /academy/live-classes/{id}/watch:
+    get:
+      tags: [Website]
+      summary: A link to watch a class now (free classes for now; never cached)
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '200': { description: '{ kind: live | replay, url }: HLS; a signed one expires' }
+        '403': { description: members_only }
+        '409': { description: not_live }
+  /academy/webhooks/{provider}:
+    post:
+      tags: [Website]
+      summary: The video provider's webhook (Mux-Signature checked); live, idle and recording-ready events
+      parameters: [{ in: path, name: provider, required: true, schema: { type: string, enum: [mux] } }]
+      responses:
+        '200': { description: '{ received: true }' }
+        '401': { description: Bad signature }
   /academy/live-classes:
     get:
       tags: [Website]
-      summary: 'With upcoming=true, the public timetable; without, every class (Studio)'
-      parameters: [{ in: query, name: upcoming, schema: { type: string, enum: ['true'] } }]
+      summary: Every class (Studio), with streamReady, hasReplay, wentLiveAt and endedAt
+      security: [{ bearer: [] }]
       responses:
-        '200': { description: '[{ id, title, instructor, startsAt, durationMinutes, tier, priceUGX, description, status, recordReplay }]' }
+        '200': { description: OK }
     post:
       tags: [Website]
       summary: Schedule a class (Content Manager)
@@ -748,8 +771,8 @@ paths:
       security: [{ bearer: [] }]
       parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
       responses:
-        '200': { description: '{ server, streamKey }' }
-        '503': { description: video_provider_not_configured, until a video provider is connected }
+        '200': { description: "'{ server, streamKey }': the class's stream is made at the provider the first time; the key is never stored" }
+        '503': { description: video_provider_not_configured, until the provider's keys are set }
   /talent/profiles:
     get:
       tags: [Talent]

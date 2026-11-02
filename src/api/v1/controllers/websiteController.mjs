@@ -34,7 +34,17 @@ export const addOption = async (req, res) => res.json({ data: { value: await opt
 
 /* Live classes */
 export const listLiveClasses = async (req, res) => res.json({ data: await live.listLiveClasses() });
-export const listUpcomingClasses = async (req, res) => res.json({ data: await live.listUpcomingClasses() });
+export const timetable = async (req, res) => res.json({ data: await live.listPublicClasses() });
+/** → { kind: 'live' | 'replay', url }: an HLS link, never cached (a signed one expires). */
+export const watchClass = async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ data: await live.getPlayback(req.params.id) });
+};
+/** The video provider's webhook. A 401 for a bad signature; anything else we got is a 200, so it isn't sent again. */
+export const videoWebhook = async (req, res) => {
+    await live.handleWebhook(req.params.provider, req.rawBody, req.headers);
+    res.json({ received: true });
+};
 export const createLiveClass = async (req, res) => created(res, await live.createLiveClass(req.body));
 export const updateLiveClass = async (req, res) => res.json({ data: await live.updateLiveClass(req.params.id, req.body) });
 export const deleteLiveClass = async (req, res) => gone(res, await live.deleteLiveClass(req.params.id));

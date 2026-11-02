@@ -99,7 +99,8 @@ export default function customizeApp(app) {
 
     // `app.use(express.json());` is setting up middleware in the Express app to parse incoming requests with JSON payloads. This middleware function parses the incoming request body and makes it available under the `req.body` property in your route handlers. It enables the Express app to handle JSON data sent in the request body of POST, PUT, and PATCH requests.
     // 2 MB: the Studio still sends images as data URLs until media uploads land (schemas/common.mjs, imageField).
-    app.use(express.json({ limit: "2mb" }));
+    // Webhooks also keep the exact bytes they came with: their signature is over those (services/video).
+    app.use(express.json({ limit: "2mb", verify: (req, res, buf) => { if (req.originalUrl.includes("/webhooks/")) req.rawBody = buf; } }));
 
     // `app.use(express.urlencoded({extended: false}));` is setting up middleware in the Express app to parse incoming requests with URL-encoded payloads. This middleware function parses the incoming request body and makes it available under the `req.body` property in your route handlers. It enables the Express app to handle URL-encoded data sent in the request body of POST, PUT, and PATCH requests.
     app.use(express.urlencoded({ extended: false }));
