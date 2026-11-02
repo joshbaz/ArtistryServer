@@ -16,7 +16,8 @@ export const corsOptions = {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // X-Client (web | mobile) decides at sign-in whether the refresh token travels as a cookie or in the body.
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Client', 'X-Request-Id'],
+    // X-Device-Id comes with a free vote, for the one-vote-per-device check.
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Client', 'X-Device-Id', 'X-Request-Id'],
     exposedHeaders: ['X-Request-Id'],
     preflightContinue: false,
     optionsSuccessStatus: 204,

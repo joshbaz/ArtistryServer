@@ -23,7 +23,7 @@ yarn seed:voting            # the client's demo campaigns, contestants, requests
                             # demo organisers sign in with the password demo-organiser
 ```
 
-Check `GET /api/v1/health` and the docs at `/api-docs`. For payments, put the PesaPal sandbox keys in `.env` (`PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`); on a laptop PesaPal can't reach the IPN, so returning to the campaign page confirms the payment instead. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
+For voter sign-in, put the Google web client id in `GOOGLE_WEB_CLIENT_ID` here and in `VITE_GOOGLE_CLIENT_ID` in `client/.env.local` (Apple: `APPLE_SERVICES_ID` and `VITE_APPLE_SERVICES_ID`, plus the rest in `.env.example`). Check `GET /api/v1/health` and the docs at `/api-docs`. For payments, put the PesaPal sandbox keys in `.env` (`PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`); on a laptop PesaPal can't reach the IPN, so returning to the campaign page confirms the payment instead. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
 
 ## Layout
 
@@ -63,7 +63,7 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 |---|---|---|---|
 | system | `/health` → `healthRoutes` | `system/` (health, app config, audit log) | 0 ✅ |
 | app | `/app` → `appRoutes` (`app/config`) | `system/` | 1 |
-| auth | `/auth` → `authRoutes` (login, register, refresh, logout, me, google, apple, otp, password) | `auth/` (members, sessions, providers, otp) | 1 |
+| auth | `/auth` → `authRoutes`: google, apple, refresh, logout, me ✅; login, register, otp, password with the stream site | `auth/` (members, providers, sessions; otp later) | 1: voter sign-in ✅ |
 | studio auth | `/auth/studio` → `studioAuthRoutes` (login, refresh, logout, me; 2FA later) | `auth/` (staff, sessions, passwords) | 1 ✅ |
 | account | `/auth/me` → `accountRoutes`, `/auth/sessions` → `sessionRoutes`, `/me` → `meRoutes` (devices, notification preferences) | `account/` | 4 |
 | support | `/support` → `supportRoutes` | `support/` | 4b |
@@ -79,7 +79,7 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
 | payments | `/payments` → `paymentRoutes`: vote orders, the payer's status check, PesaPal's IPN, the Studio's voting transactions ✅; streaming orders, store billing, history and subscriptions next | `payments/` (pesapal, orders, revenue) | 4, 4b; voting ✅ |
 | academy | `/academy` → `academyRoutes` | `academy/` (live classes, ingest, chat) | 5 |
-| voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns; free votes next) | `voting/` (campaigns, contestants, phase; votes and fraud checks next) | 7: campaigns ✅, free votes, paid votes |
+| voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns, the voter's free vote and `me`) | `voting/` (campaigns, contestants, phase, freeVotes) | 7: campaigns ✅, free votes ✅, paid votes ✅, VIP next |
 | organisers | `/organisers` → `organiserRoutes` (public requests), `/auth/organizer` → `organizerAuthRoutes` (sign-in, invites), `/organizer` → `organizerPortalRoutes` (their campaigns, contestants, results, payouts, profile), `/voting/studio/organizers` + `/payouts` → `studioOrganizerRoutes` (nested in `studioVotingRoutes`) | `organisers/` (requests, accounts, portal, payouts, admin) | 7: ✅ |
 | notify | none (used by other services) | `notify/` (push via FCM, socket `invalidate`) | 1+ |
 | emails | none | `emails/` (zohoMail, templates, queue) | 1+ |
@@ -134,7 +134,7 @@ export const create = async (req, res) => {
 | Error envelope | `app.mjs` + `utils/AppError.js` | `{ error: { code, message, details?, requestId } }`. Prisma P2002 becomes 409 |
 | Request id | `app.mjs` | `req.id`, the `X-Request-Id` header, and in every error and 5xx log line |
 | Validation | `middleware/validate.mjs` | 422 with `details.fieldErrors` |
-| Auth guards | `middleware/auth.mjs` | `requireAdmin` (open session, active account → `req.admin`), `requireOrganizer` (→ `req.organizer`), `allow(...roles)` (MOU 3C roles; a Super Admin always passes), `knownOrigin` for cookie-only routes. `requireMember` and `optionalMember` come with member auth |
+| Auth guards | `middleware/auth.mjs` | `requireAdmin` (open session, active account → `req.admin`), `requireOrganizer` (→ `req.organizer`), `allow(...roles)` (MOU 3C roles; a Super Admin always passes), `knownOrigin` for cookie-only routes. `requireMember` (→ `req.member`) |
 | Sessions | `services/auth/sessions.mjs` | Both realms: one row per device, refresh rotation with a 30 s grace, reuse revokes the session |
 | Refresh cookies | `utils/cookies.mjs` | `a360_rt_staff` (`/api/v1/auth/studio`), `a360_rt_organizer` (`/api/v1/auth/organizer`), `a360_rt_member` (`/api/v1/auth`) |
 | Tokens | `utils/tokens.mjs` | 15-minute access JWT signed with the realm's own secret; `aud` = realm, `sid` = session, `client` = web or mobile |

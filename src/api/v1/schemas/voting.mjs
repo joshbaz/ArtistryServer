@@ -72,3 +72,9 @@ export const createContestantBody = z.object({
 });
 
 export const updateContestantBody = z.object(contestantFields).partial();
+
+/** POST /voting/campaigns/:id/votes: the free vote, for one contestant. */
+export const freeVoteBody = z.object({ participantId: objectId });
+
+/** The device the free vote comes from (X-Device-Id): an id the page or the app keeps for itself. */
+export const deviceHeader = z.string().regex(/^[\w-]{16,128}$/);

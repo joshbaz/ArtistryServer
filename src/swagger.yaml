@@ -22,8 +22,13 @@ tags:
       travels in the httpOnly a360_rt_staff cookie, scoped to /api/v1/auth/studio. Every refresh rotates
       it; the previous one works for 30 seconds more, and after that presenting it revokes the session.
       Sign-in is limited to 5 failed tries per 15 minutes per IP and email.
+  - name: Member auth
+    description: |
+      Members (member realm): voters now, the stream site and the app later. Sign in with a Google or Apple ID token,
+      checked against our client ids. On the web the refresh token is the httpOnly a360_rt_member cookie on /api/v1/auth;
+      with X-Client: mobile it comes back in the body instead and is sent back as { refreshToken }.
   - name: Voting
-    description: Published campaigns and their leaderboards. Anyone may read.
+    description: Published campaigns and their leaderboards, which anyone may read, and the signed-in voter's free vote.
   - name: Studio voting
     description: |
       Every campaign, drafts included, and its contestants (admin realm). Any Studio role reads; a Content Manager
@@ -127,6 +132,34 @@ paths:
       responses:
         '200': { description: '{ campaign, participants }' }
         '404': { description: Not found or a draft }
+  /voting/campaigns/{id}/me:
+    get:
+      tags: [Voting]
+      summary: The signed-in voter's standing in a campaign
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      responses:
+        '200': { description: '{ nextFreeVoteAt: string | null, isVip, dailyVotes }' }
+        '401': { description: Not signed in }
+  /voting/campaigns/{id}/votes:
+    post:
+      tags: [Voting]
+      summary: Cast the free vote
+      description: |
+        One per voter per campaign every 24 hours, one per device (X-Device-Id) whoever is signed in, and at most 50 per
+        network (hashed IP). Only keyed hashes of the IP and device id are stored.
+      security: [{ bearer: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }
+        - { in: header, name: X-Device-Id, required: true, schema: { type: string, pattern: '^[\w-]{16,128}$' } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [participantId], properties: { participantId: { type: string } } } } } }
+      responses:
+        '201': { description: '{ participantId, added, isVip, nextFreeVoteAt }' }
+        '400': { description: 'device_required' }
+        '401': { description: Not signed in }
+        '409': { description: 'not_open or closed' }
+        '422': { description: Not a contestant in this campaign }
+        '429': { description: 'free_vote_used (details.nextAt), device_limit or network_limit' }
   /voting/studio/campaigns:
     get:
       tags: [Studio voting]
@@ -249,6 +282,44 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [pending, approved, declined] }, campaignId: { type: string } } } } } }
       responses:
         '200': { description: OK }
+  /auth/google:
+    post:
+      tags: [Member auth]
+      summary: Sign in with a Google ID token
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [idToken], properties: { idToken: { type: string } } } } } }
+      responses:
+        '200': { description: '{ accessToken, expiresIn, member } and the cookie (or refreshToken, for mobile)' }
+        '401': { description: The token didn't check out }
+        '503': { description: 'provider_not_configured' }
+  /auth/apple:
+    post:
+      tags: [Member auth]
+      summary: Sign in with an Apple ID token
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [idToken], properties: { idToken: { type: string }, name: { type: string, description: 'Apple gives the page the name on the first sign-in only' } } } } } }
+      responses:
+        '200': { description: '{ accessToken, expiresIn, member } and the cookie (or refreshToken, for mobile)' }
+        '401': { description: The token didn't check out }
+        '503': { description: 'provider_not_configured' }
+  /auth/refresh:
+    post:
+      tags: [Member auth]
+      summary: Trade the refresh token for a new access token
+      responses:
+        '200': { description: OK }
+        '401': { description: The session has ended }
+  /auth/logout:
+    post:
+      tags: [Member auth]
+      summary: Sign out this device
+      responses:
+        '204': { description: Signed out }
+  /auth/me:
+    get:
+      tags: [Member auth]
+      summary: The signed-in member
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: '{ id, name, email, avatar, provider, role }' }
   /auth/organizer/login:
     post:
       tags: [Organiser auth]
