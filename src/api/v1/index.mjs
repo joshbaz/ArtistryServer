@@ -9,10 +9,18 @@ import organizerAuthRoutes from './routes/organizerAuthRoutes.mjs';
 import organizerPortalRoutes from './routes/organizerPortalRoutes.mjs';
 import paymentRoutes from './routes/paymentRoutes.mjs';
 import authRoutes from './routes/authRoutes.mjs';
+import contentRoutes from './routes/contentRoutes.mjs';
+import galleryRoutes from './routes/galleryRoutes.mjs';
+import bookingRoutes from './routes/bookingRoutes.mjs';
+import monologueRoutes from './routes/monologueRoutes.mjs';
+import talentRoutes from './routes/talentRoutes.mjs';
+import academyRoutes from './routes/academyRoutes.mjs';
+import studioOptionsRoutes from './routes/studioOptionsRoutes.mjs';
 
 
 const router = express.Router();
-// More specific paths first: /auth/studio and /auth/organizer before /auth, /voting/studio before /voting (server/README.md, The areas).
+// More specific paths first: /auth/studio and /auth/organizer before /auth, /voting/studio before /voting,
+// /talent/bookings and /talent/monologues before /talent (server/README.md, The areas).
 const endpoints = [
     { path: '/health', router: healthRoutes },
     { path: '/auth/studio', router: studioAuthRoutes },
@@ -23,6 +31,13 @@ const endpoints = [
     { path: '/organisers', router: organiserRoutes },
     { path: '/organizer', router: organizerPortalRoutes },
     { path: '/payments', router: paymentRoutes },
+    { path: '/content', router: contentRoutes },
+    { path: '/gallery', router: galleryRoutes },
+    { path: '/talent/bookings', router: bookingRoutes },
+    { path: '/talent/monologues', router: monologueRoutes },
+    { path: '/talent', router: talentRoutes },
+    { path: '/academy', router: academyRoutes },
+    { path: '/studio/options', router: studioOptionsRoutes },
 ];
 
 endpoints.forEach((endpoint) => router.use(endpoint.path, requestLogger, endpoint.router));

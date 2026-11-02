@@ -309,3 +309,149 @@ model PaymentOrder {
   @@index([campaignId])
   @@index([trackingId])
 }
+
+// ── Website (Studio › Website and the public pages it feeds) ──
+
+// The editable lists behind Studio dropdowns ("+ Add" saves here). One document, id "lists".
+model OptionLists {
+  id                String   @id @map("_id")
+  languages         String[]
+  bases             String[]
+  // [{ label, roles[] }]; added disciplines join the "Other" group
+  disciplineGroups  Json
+  newsCategories    String[]
+  galleryCategories String[]
+  votingCategories  String[]
+  updatedAt         DateTime @updatedAt
+}
+
+// A running number that is never reused: talent references (T-NNN), booking references (BK-NNNN).
+model Counter {
+  id    String @id @map("_id")
+  value Int
+}
+
+// A news story or event. Published ones show on the home page's News & Events strip and /events/:id.
+model Article {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  title     String
+  excerpt   String   @default("")
+  content   String   @default("")
+  location  String   @default("")
+  category  String   @default("")
+  // YYYY-MM-DD: an event's first day; endDate its last, for a multi-day event
+  date      String
+  endDate   String   @default("")
+  image     String   @default("")
+  // Published | Draft
+  status    String   @default("Draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, date])
+}
+
+// A /gallery photo. "Alumni" ones fill the alumni slider, the rest the grid.
+model GalleryPhoto {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  title     String   @default("")
+  category  String
+  image     String
+  // Visible | Hidden
+  status    String   @default("Visible")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// One talent: the Studio sees every field, the public roster only an allowlist (never lastName, phone or email).
+model Talent {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  // The URL (/profile/t-001) and the public reference (T-001); neither changes nor is reused.
+  slug         String   @unique
+  talentId     String   @unique
+  firstName    String
+  lastName     String   @default("")
+  primaryRole  String
+  otherRoles   String[]
+  skills       String[]
+  experience   String   @default("")
+  base         String   @default("")
+  languages    String[]
+  // available | on-project | unavailable
+  availability String   @default("available")
+  published    Boolean  @default(false)
+  phone        String   @default("")
+  email        String   @default("")
+  shortBio     String   @default("")
+  profileImg   String   @default("")
+  headerImage  String   @default("")
+  // [{ id, title, description, image }]
+  projects     Json     @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([published])
+}
+
+// A talent's showcase clip: a YouTube link, or an upload's https playback URL.
+model Monologue {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  // The public reference, T-001
+  talentId  String
+  title     String
+  // youtube | upload
+  source    String
+  url       String
+  duration  Int?
+  createdAt DateTime @default(now())
+
+  @@index([talentId])
+}
+
+// A guest's request to book one or more talents (the public shortlist form).
+model Booking {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  // What the guest is told and quotes back: BK-1042
+  reference      String   @unique
+  // Public talent references (T-001)
+  talentIds      String[]
+  name           String
+  email          String   @default("")
+  phone          String   @default("")
+  organisation   String   @default("")
+  projectType    String   @default("")
+  dates          String   @default("")
+  message        String   @default("")
+  // new | contacted | confirmed | declined
+  status         String   @default("new")
+  // { "T-001": "pending" | "confirmed" | "unavailable" | "declined" }
+  talentOutcomes Json     @default("{}")
+  // [{ at, kind: received | status | reply | note | talent, text, by? }], written by the server only
+  activity       Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// A scheduled live class (MOU 3D). The stream itself comes from the video provider, once chosen.
+model LiveClass {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  instructor      String   @default("")
+  startsAt        DateTime
+  durationMinutes Int
+  // free | subscription | ppv
+  tier            String   @default("subscription")
+  priceUGX        Int      @default(0)
+  description     String   @default("")
+  // scheduled | live | ended | cancelled
+  status          String   @default("scheduled")
+  recordReplay    Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([startsAt])
+}
