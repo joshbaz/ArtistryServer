@@ -21,6 +21,7 @@ yarn db:push                # create the collections and indexes from schema.pri
 yarn staff:create --email you@theartistry360.com --name "Your Name"   # the first Super Admin
 yarn seed:voting            # the client's demo campaigns, contestants, requests, organisers and payouts (--reset to start over);
                             # demo organisers sign in with the password demo-organiser
+yarn seed:website           # the client's demo talent, monologues, bookings, news, gallery and live classes (--reset to start over)
 ```
 
 For voter sign-in, put the Google web client id in `GOOGLE_WEB_CLIENT_ID` here and in `VITE_GOOGLE_CLIENT_ID` in `client/.env.local` (Apple: `APPLE_SERVICES_ID` and `VITE_APPLE_SERVICES_ID`, plus the rest in `.env.example`). Check `GET /api/v1/health` and the docs at `/api-docs`. For payments, put the PesaPal sandbox keys in `.env` (`PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`); on a laptop PesaPal can't reach the IPN, so returning to the campaign page confirms the payment instead. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
@@ -67,10 +68,10 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | studio auth | `/auth/studio` → `studioAuthRoutes` (login, refresh, logout, me; 2FA later) | `auth/` (staff, sessions, passwords) | 1 ✅ |
 | account | `/auth/me` → `accountRoutes`, `/auth/sessions` → `sessionRoutes`, `/me` → `meRoutes` (devices, notification preferences) | `account/` | 4 |
 | support | `/support` → `supportRoutes` | `support/` | 4b |
-| content | `/content` → `contentRoutes` (programmes, events, news, legal, faq) | `content/` | 4b, 6 |
-| gallery | `/gallery` → `galleryRoutes` | `gallery/` | 6 |
+| content | `/content` → `contentRoutes`: news, events ✅; programmes, legal, faq later | `content/` (news) | 4b, 6: news & events ✅ |
+| gallery | `/gallery` → `galleryRoutes` | `gallery/` | 6 ✅ |
 | media | `/media` → `mediaRoutes` (image uploads) | `media/` | 6 |
-| talent | `/talent/bookings` → `bookingRoutes`, `/talent/monologues` → `monologueRoutes`, `/talent` → `talentRoutes` (talent, profiles) | `talent/` | 6 |
+| talent | `/talent/bookings` → `bookingRoutes`, `/talent/monologues` → `monologueRoutes`, `/talent` → `talentRoutes` (talent, profiles, a talent's monologues) | `talent/` (talent, monologues, bookings) | 6 ✅ |
 | enquiries | `/enquiries` → `enquiryRoutes` | `enquiries/` | 6 |
 | analytics | `/analytics` → `analyticsRoutes` | `analytics/` | 6 |
 | streaming | `/streaming/titles` → `titleRoutes`, `/streaming/playback` → `playbackRoutes`, `/streaming` → `streamingRoutes` (types, categories, plans, subscribers, ads), `/streaming/uploads` + `/streaming/assets` → `uploadRoutes` | `streaming/` (titles, visibility, playback, releases, video provider) | 2, 6 |
@@ -78,9 +79,10 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | comments | `/streaming/titles/:id/comments` → `commentRoutes` (`mergeParams`) | `comments/` | 3 |
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
 | payments | `/payments` → `paymentRoutes`: vote orders, the payer's status check, PesaPal's IPN, the Studio's voting transactions ✅; streaming orders, store billing, history and subscriptions next | `payments/` (pesapal, orders, revenue) | 4, 4b; voting ✅ |
-| academy | `/academy` → `academyRoutes` | `academy/` (live classes, ingest, chat) | 5 |
+| academy | `/academy` → `academyRoutes`: live classes ✅; ingest (503 until the video provider) and chat later | `academy/` (liveClasses) | 5: schedule ✅ |
 | voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns, the voter's free vote and `me`) | `voting/` (campaigns, contestants, phase, freeVotes, vip, audit) | 7: campaigns ✅, free votes ✅, paid votes ✅, VIP ✅ |
 | organisers | `/organisers` → `organiserRoutes` (public requests), `/auth/organizer` → `organizerAuthRoutes` (sign-in, invites), `/organizer` → `organizerPortalRoutes` (their campaigns, contestants, results, payouts, profile), `/voting/studio/organizers` + `/payouts` → `studioOrganizerRoutes` (nested in `studioVotingRoutes`) | `organisers/` (requests, accounts, portal, payouts, admin) | 7: ✅ |
+| studio options | `/studio/options` → `studioOptionsRoutes` (the Studio's editable dropdown lists) | `system/` (options, counters) | 6 ✅ |
 | notify | none (used by other services) | `notify/` (push via FCM, socket `invalidate`) | 1+ |
 | emails | none | `emails/` (zohoMail, templates, queue) | 1+ |
 

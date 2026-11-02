@@ -12,7 +12,8 @@
     "postbuild": "prisma generate",
     "db:push": "prisma db push",
     "staff:create": "node scripts/create-staff.mjs",
-    "seed:voting": "node scripts/seed-voting.mjs"
+    "seed:voting": "node scripts/seed-voting.mjs",
+    "seed:website": "node scripts/seed-website.mjs"
   },
   "author": "Joshua Kimbareeba",
   "license": "MIT",
