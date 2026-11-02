@@ -29,6 +29,10 @@ router.post('/campaigns/:id/take-down', id, superAdmin, validate(schema.takeDown
 router.post('/campaigns/:id/restore', id, superAdmin, controller.restore);
 router.delete('/campaigns/:id', id, superAdmin, controller.deleteCampaign);
 
+// Where every vote came from (any Studio role; voter names and emails for Super Admin and Moderator only).
+router.get('/campaigns/:id/votes/summary', id, controller.voteSummary);
+router.get('/campaigns/:id/votes', id, validate(schema.voteLedgerQuery, 'query'), controller.voteLedger);
+
 router.get('/campaigns/:id/contestants', id, controller.listContestants);
 router.post('/campaigns/:id/contestants', id, editor, validate(schema.createContestantBody), controller.createContestant);
 router.patch('/contestants/:id', id, editor, validate(schema.updateContestantBody), controller.updateContestant);

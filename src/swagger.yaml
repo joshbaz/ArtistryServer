@@ -160,6 +160,27 @@ paths:
         '409': { description: 'not_open or closed' }
         '422': { description: Not a contestant in this campaign }
         '429': { description: 'free_vote_used (details.nextAt), device_limit or network_limit' }
+  /voting/studio/campaigns/{id}/votes/summary:
+    get:
+      tags: [Studio voting]
+      summary: Votes by source, and whether every contestant's total matches its records
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ totals, contestants, check, people, records }' }
+  /voting/studio/campaigns/{id}/votes:
+    get:
+      tags: [Studio voting]
+      summary: Every vote, newest first (names and emails for Super Admin and Moderator only)
+      security: [{ bearer: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: query, name: type, schema: { type: string, enum: [free, vipDaily, bought, vipInstant] } }
+        - { in: query, name: participantId, schema: { type: string } }
+        - { in: query, name: before, schema: { type: string, format: date-time }, description: The previous page's meta.next }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200': { description: '{ data: votes[], meta: { next, identities } }' }
   /voting/studio/campaigns:
     get:
       tags: [Studio voting]

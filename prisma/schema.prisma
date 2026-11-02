@@ -175,6 +175,8 @@ model FreeVote {
   participantId String   @db.ObjectId
   memberId      String   @db.ObjectId
   votes         Int
+  // Cast with a VIP pass (votes is then the pass's daily votes).
+  vip           Boolean  @default(false)
   ipHash        String
   deviceHash    String
   createdAt     DateTime @default(now())
@@ -284,7 +286,7 @@ model PaymentOrder {
   kind             String
   campaignId       String?   @db.ObjectId
   participantId    String?   @db.ObjectId
-  // The signed-in voter a VIP pass is for (none for bought votes: PesaPal knows that payer).
+  // The signed-in voter: always for a VIP pass; for bought votes only if they happened to be signed in.
   memberId         String?   @db.ObjectId
   votes            Int       @default(0)
   amountUGX        Int

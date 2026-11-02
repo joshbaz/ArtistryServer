@@ -1,5 +1,7 @@
 import * as campaigns from '../../../services/voting/campaigns.mjs';
 import * as contestants from '../../../services/voting/contestants.mjs';
+import * as audit from '../../../services/voting/audit.mjs';
+import { roleAllows } from '../../../utils/permissions.mjs';
 
 /** Studio › Voting (admin realm): every campaign, drafts included, and its contestants. */
 
@@ -51,4 +53,17 @@ export const updateContestant = async (req, res) => {
 export const deleteContestant = async (req, res) => {
     await contestants.deleteContestant(req.params.id);
     res.status(204).end();
+};
+
+/** GET /voting/studio/campaigns/:id/votes/summary: votes by source, and whether every counter matches its records. */
+export const voteSummary = async (req, res) => {
+    res.json({ data: await audit.voteBreakdown(req.params.id) });
+};
+
+/** GET /voting/studio/campaigns/:id/votes: every vote, newest first, a page at a time. */
+export const voteLedger = async (req, res) => {
+    // Who voted, by name and email, is for the trust and safety roles only.
+    const identities = roleAllows(req.admin.role, ['moderator']);
+    const { items, next } = await audit.voteLedger(req.params.id, req.query, { identities });
+    res.json({ data: items, meta: { next, identities } });
 };

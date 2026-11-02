@@ -11,7 +11,7 @@ export const createOrder = async (req, res) => {
     if (kind === 'vip' && !req.member) throw new AppError('Sign in to become a VIP voter.', 401);
     const order = kind === 'vip'
         ? await orders.createVipOrder({ campaignId, participantId, memberId: req.member.id })
-        : await orders.createVoteOrder({ campaignId, participantId, votes });
+        : await orders.createVoteOrder({ campaignId, participantId, votes, memberId: req.member?.id });
     res.status(201).json({ data: order });
 };
 

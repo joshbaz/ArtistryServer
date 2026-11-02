@@ -78,3 +78,12 @@ export const freeVoteBody = z.object({ participantId: objectId });
 
 /** The device the free vote comes from (X-Device-Id): an id the page or the app keeps for itself. */
 export const deviceHeader = z.string().regex(/^[\w-]{16,128}$/);
+
+/** GET /voting/studio/campaigns/:id/votes: a page of the vote list, newest first. */
+export const voteLedgerQuery = z.object({
+    type: z.enum(['free', 'vipDaily', 'bought', 'vipInstant']).optional(),
+    participantId: objectId.optional(),
+    // The previous page's `next`.
+    before: z.iso.datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+});

@@ -115,7 +115,7 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
     const votes = pass?.dailyVotes ?? 1;
     // Two single-document writes rather than one transaction: a popular contestant gets many votes
     // at once, and transactions on the same document would fail each other with write conflicts.
-    await prisma.freeVote.create({ data: { campaignId, participantId, memberId, votes, ipHash, deviceHash } });
+    await prisma.freeVote.create({ data: { campaignId, participantId, memberId, votes, vip: Boolean(pass), ipHash, deviceHash } });
     await prisma.contestant.update({ where: { id: participantId }, data: { platformVotes: { increment: votes } } });
 
     invalidateSite('campaigns', { id: campaignId });

@@ -79,7 +79,7 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
 | payments | `/payments` → `paymentRoutes`: vote orders, the payer's status check, PesaPal's IPN, the Studio's voting transactions ✅; streaming orders, store billing, history and subscriptions next | `payments/` (pesapal, orders, revenue) | 4, 4b; voting ✅ |
 | academy | `/academy` → `academyRoutes` | `academy/` (live classes, ingest, chat) | 5 |
-| voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns, the voter's free vote and `me`) | `voting/` (campaigns, contestants, phase, freeVotes, vip) | 7: campaigns ✅, free votes ✅, paid votes ✅, VIP ✅ |
+| voting | `/voting/studio` → `studioVotingRoutes` (campaigns, contestants, stats), `/voting` → `votingRoutes` (published campaigns, the voter's free vote and `me`) | `voting/` (campaigns, contestants, phase, freeVotes, vip, audit) | 7: campaigns ✅, free votes ✅, paid votes ✅, VIP ✅ |
 | organisers | `/organisers` → `organiserRoutes` (public requests), `/auth/organizer` → `organizerAuthRoutes` (sign-in, invites), `/organizer` → `organizerPortalRoutes` (their campaigns, contestants, results, payouts, profile), `/voting/studio/organizers` + `/payouts` → `studioOrganizerRoutes` (nested in `studioVotingRoutes`) | `organisers/` (requests, accounts, portal, payouts, admin) | 7: ✅ |
 | notify | none (used by other services) | `notify/` (push via FCM, socket `invalidate`) | 1+ |
 | emails | none | `emails/` (zohoMail, templates, queue) | 1+ |

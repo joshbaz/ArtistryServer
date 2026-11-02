@@ -45,13 +45,15 @@ const changed = (order) => {
 
 /**
  * Start buying votes for a contestant. The price is the campaign's, worked
- * out here; the page only says how many. No sign-in: PesaPal knows the payer.
+ * out here; the page only says how many. No sign-in needed: PesaPal knows the
+ * payer. No payment details are ever kept: only PesaPal's references.
  * @returns {Promise<{ reference: string, redirectUrl: string }>}
  */
-export const createVoteOrder = async ({ campaignId, participantId, votes }) => {
+export const createVoteOrder = async ({ campaignId, participantId, votes, memberId }) => {
     const { campaign, contestant } = await openForVotes(campaignId, participantId);
     return checkout(
-        { kind: 'votes', campaignId, participantId, votes, amountUGX: votes * campaign.votePriceUGX },
+        // A buyer who happens to be signed in is noted, for the Studio's vote list; nobody has to be.
+        { kind: 'votes', campaignId, participantId, votes, amountUGX: votes * campaign.votePriceUGX, memberId: memberId ?? null },
         `${votes} vote${votes === 1 ? '' : 's'} for ${contestant.fullName}, ${campaign.title}`,
     );
 };
