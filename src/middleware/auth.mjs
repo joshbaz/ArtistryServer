@@ -57,6 +57,23 @@ export const requireMember = async (req, res, next) => {
 };
 
 /**
+ * Sets `req.member` when a valid member token comes with the request, and
+ * carries on either way: for routes anyone may call that do more for a
+ * signed-in voter. An expired token counts as signed out.
+ */
+export const optionalMember = async (req, res, next) => {
+    const payload = verifyAccessToken(bearer(req), 'member');
+    if (payload) {
+        const [open, member] = await Promise.all([isSessionOpen(payload.sid), findActiveMember(payload.id)]);
+        if (open && member) {
+            req.member = member;
+            req.sessionId = payload.sid;
+        }
+    }
+    next();
+};
+
+/**
  * Only these Studio roles (MOU 3C) may continue; a Super Admin always may.
  * Use after requireAdmin: `requireAdmin, allow('finance')`.
  * @param {...string} roles

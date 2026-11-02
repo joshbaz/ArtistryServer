@@ -4,6 +4,7 @@ import { env } from '../../env.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateSite } from '../../utils/sockets.js';
 import { openForVotes } from './campaigns.mjs';
+import { activePass } from './vip.mjs';
 
 /**
  * The free daily vote (10-voting.md, decision 4). Three checks, all of which
@@ -14,7 +15,8 @@ import { openForVotes } from './campaigns.mjs';
  *     in on it, so one phone can't vote again under a second account;
  *   - the network: at most NETWORK_LIMIT per campaign per 24 hours from one
  *     IP, high enough for a campus or office behind one address.
- * IPs and device ids are kept only as keyed hashes.
+ * IPs and device ids are kept only as keyed hashes. A VIP voter's free vote
+ * counts their pass's daily votes (vip.mjs).
  */
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -33,11 +35,16 @@ export const nextFreeVoteAt = async (campaignId, memberId) => {
     return next && next > new Date() ? next : null;
 };
 
-/** What the vote window shows the signed-in voter. VIP joins this with the VIP checkout. */
+/** What the vote window shows the signed-in voter: their next free vote, and their VIP pass if they hold one. */
 export const voterStatus = async (campaignId, memberId) => {
     await openOrFinished(campaignId);
-    const next = await nextFreeVoteAt(campaignId, memberId);
-    return { nextFreeVoteAt: next?.toISOString() ?? null, isVip: false, dailyVotes: 1 };
+    const [next, pass] = await Promise.all([nextFreeVoteAt(campaignId, memberId), activePass(campaignId, memberId)]);
+    return {
+        nextFreeVoteAt: next?.toISOString() ?? null,
+        isVip: Boolean(pass),
+        dailyVotes: pass?.dailyVotes ?? 1,
+        ...(pass ? { ticketCode: pass.ticketCode } : {}),
+    };
 };
 
 // A finished campaign's page still asks; only a missing or unpublished one is a 404.
@@ -69,6 +76,12 @@ const claimSlot = async (campaignId, memberId, now) => {
     }
 };
 
+/**
+ * Use up today's free vote without casting one: a VIP pass's instant votes
+ * count as that day's. Does nothing if today's was already used.
+ */
+export const takeTodaysVote = (campaignId, memberId, at = new Date()) => claimSlot(campaignId, memberId, at);
+
 /** Give the vote back, when a check after claiming it says no. */
 const releaseSlot = (campaignId, memberId, now) =>
     prisma.freeVoteSlot.updateMany({ where: { campaignId, memberId, lastVoteAt: now }, data: { lastVoteAt: new Date(0) } });
@@ -97,7 +110,9 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
             : new AppError('Too many free votes from this network today. You can still boost with paid votes.', 429, { code: 'network_limit' });
     }
 
-    const votes = 1;
+    // A VIP voter's free vote counts their pass's daily votes.
+    const pass = await activePass(campaignId, memberId);
+    const votes = pass?.dailyVotes ?? 1;
     // Two single-document writes rather than one transaction: a popular contestant gets many votes
     // at once, and transactions on the same document would fail each other with write conflicts.
     await prisma.freeVote.create({ data: { campaignId, participantId, memberId, votes, ipHash, deviceHash } });
@@ -105,5 +120,5 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
 
     invalidateSite('campaigns', { id: campaignId });
     invalidate('admin', ['admin', 'campaigns'], { id: campaignId });
-    return { participantId, added: votes, isVip: false, nextFreeVoteAt: new Date(now.getTime() + DAY).toISOString() };
+    return { participantId, added: votes, isVip: Boolean(pass), nextFreeVoteAt: new Date(now.getTime() + DAY).toISOString() };
 };

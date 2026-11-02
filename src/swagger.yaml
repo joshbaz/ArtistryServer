@@ -544,11 +544,15 @@ paths:
   /payments/orders:
     post:
       tags: [Payments]
-      summary: Start buying votes (no sign-in; rate limited)
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind, campaignId, participantId, votes], properties: { kind: { type: string, enum: [votes] }, campaignId: { type: string }, participantId: { type: string }, votes: { type: integer, minimum: 1, maximum: 10000 } } } } } }
+      summary: Start buying votes (no sign-in) or a VIP pass (signed-in voter); rate limited
+      description: |
+        kind votes needs votes (1–10,000). kind vip needs the voter's member token; the price and the votes added at
+        once are the campaign's vipPriceUGX and vipDailyVotes. When PesaPal confirms, the pass is granted.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind, campaignId, participantId], properties: { kind: { type: string, enum: [votes, vip] }, campaignId: { type: string }, participantId: { type: string }, votes: { type: integer, minimum: 1, maximum: 10000 } } } } } }
       responses:
         '201': { description: "'{ reference, redirectUrl }': send the payer to redirectUrl" }
-        '409': { description: 'not_open or closed' }
+        '401': { description: VIP while signed out }
+        '409': { description: 'not_open, closed or already_vip' }
         '502': { description: PesaPal unreachable }
     get:
       tags: [Payments]

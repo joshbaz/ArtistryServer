@@ -184,6 +184,25 @@ model FreeVote {
   @@index([memberId])
 }
 
+// A voter's VIP pass for one campaign, made when its PesaPal order completes: each free vote then
+// counts dailyVotes, and the ticket code is their free event ticket. A reversed payment revokes it.
+model VipPass {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  campaignId String   @db.ObjectId
+  memberId   String   @db.ObjectId
+  // The order that last paid for it.
+  orderId    String   @db.ObjectId
+  dailyVotes Int
+  ticketCode String   @unique
+  // active | revoked
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([campaignId, memberId])
+  @@index([orderId])
+}
+
 // The public "Run a campaign" form, reviewed in Studio › Voting › Requests.
 model OrganiserRequest {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -265,6 +284,8 @@ model PaymentOrder {
   kind             String
   campaignId       String?   @db.ObjectId
   participantId    String?   @db.ObjectId
+  // The signed-in voter a VIP pass is for (none for bought votes: PesaPal knows that payer).
+  memberId         String?   @db.ObjectId
   votes            Int       @default(0)
   amountUGX        Int
   currency         String    @default("UGX")

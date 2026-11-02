@@ -4,6 +4,8 @@ import { env } from '../../env.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateSite } from '../../utils/sockets.js';
 import { openForVotes } from '../voting/campaigns.mjs';
+import { activePass, grantPass, revokePassFor } from '../voting/vip.mjs';
+import { takeTodaysVote } from '../voting/freeVotes.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
 
 /**
@@ -48,15 +50,34 @@ const changed = (order) => {
  */
 export const createVoteOrder = async ({ campaignId, participantId, votes }) => {
     const { campaign, contestant } = await openForVotes(campaignId, participantId);
+    return checkout(
+        { kind: 'votes', campaignId, participantId, votes, amountUGX: votes * campaign.votePriceUGX },
+        `${votes} vote${votes === 1 ? '' : 's'} for ${contestant.fullName}, ${campaign.title}`,
+    );
+};
+
+/**
+ * Start buying a VIP pass for the signed-in voter (10-voting.md). The price
+ * and the votes it adds at once (the campaign's VIP votes a day, for this
+ * contestant) are the campaign's, fixed into the order now.
+ * @returns {Promise<{ reference: string, redirectUrl: string }>}
+ */
+export const createVipOrder = async ({ campaignId, participantId, memberId }) => {
+    const { campaign, contestant } = await openForVotes(campaignId, participantId);
+    if (await activePass(campaignId, memberId)) throw new AppError("You're already a VIP voter in this campaign.", 409, { code: 'already_vip' });
+    return checkout(
+        { kind: 'vip', campaignId, participantId, memberId, votes: campaign.vipDailyVotes, amountUGX: campaign.vipPriceUGX },
+        `VIP voter pass, ${campaign.title} (${campaign.vipDailyVotes} votes now for ${contestant.fullName})`,
+    );
+};
+
+/** Record the order, then hand it to PesaPal; the payer goes to the page it answers with. */
+const checkout = async (fields, description) => {
     const order = await prisma.paymentOrder.create({
         data: {
+            ...fields,
             reference: newReference(),
             module: 'voting',
-            kind: 'votes',
-            campaignId,
-            participantId,
-            votes,
-            amountUGX: votes * campaign.votePriceUGX,
             // Written out: on MongoDB, Prisma's `field: null` filter doesn't match a missing field.
             completedAt: null,
         },
@@ -65,9 +86,9 @@ export const createVoteOrder = async ({ campaignId, participantId, votes }) => {
         const { trackingId, redirectUrl } = await submitOrder({
             reference: order.reference,
             amountUGX: order.amountUGX,
-            description: `${votes} vote${votes === 1 ? '' : 's'} for ${contestant.fullName}, ${campaign.title}`,
+            description,
             // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…; the campaign page checks the order from those.
-            callbackUrl: `${env.APP_URL}/voting/${campaignId}`,
+            callbackUrl: `${env.APP_URL}/voting/${order.campaignId}`,
         });
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { trackingId } });
         return { reference: order.reference, redirectUrl };
@@ -100,12 +121,17 @@ const settle = async (order) => {
                 where: { id: order.id, status: 'pending' },
                 data: { status: 'completed', completedAt: now, method: paid.method, confirmationCode: paid.confirmationCode },
             });
-            if (count && order.kind === 'votes' && order.participantId) {
+            if (count && order.participantId && order.votes) {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { increment: order.votes } } });
             }
+            if (count && order.kind === 'vip' && order.memberId) await grantPass(tx, order, order.votes);
             return count;
         });
-        if (done) changed(order);
+        if (done) {
+            // The VIP votes just added are today's: the voter's next one opens in 24 hours.
+            if (order.kind === 'vip' && order.memberId) await takeTodaysVote(order.campaignId, order.memberId, now).catch(() => {});
+            changed(order);
+        }
     } else if (paid.state === 'failed' && order.status === 'pending') {
         await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', method: paid.method } });
         changed(order);
@@ -113,9 +139,10 @@ const settle = async (order) => {
         // A refunded or charged-back payment takes its votes back with it.
         const undone = await prisma.$transaction(async (tx) => {
             const { count } = await tx.paymentOrder.updateMany({ where: { id: order.id, status: order.status }, data: { status: order.status === 'completed' ? 'reversed' : 'failed' } });
-            if (count && order.status === 'completed' && order.kind === 'votes' && order.participantId) {
+            if (count && order.status === 'completed' && order.participantId && order.votes) {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { decrement: order.votes } } });
             }
+            if (count && order.status === 'completed' && order.kind === 'vip') await revokePassFor(tx, order.id);
             return count;
         });
         if (undone) changed(order);

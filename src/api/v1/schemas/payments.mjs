@@ -2,13 +2,21 @@ import { z } from 'zod';
 import { objectId } from './common.mjs';
 import { MAX_VOTES } from '../../../services/payments/orders.mjs';
 
-/** POST payments/orders. Only bought votes for now; VIP comes with voter sign-in. The price is the server's. */
-export const createOrderBody = z.object({
-    kind: z.literal('votes', { error: 'Only vote purchases are open for now.' }),
-    campaignId: objectId,
-    participantId: objectId,
-    votes: z.coerce.number({ error: `Choose between 1 and ${MAX_VOTES.toLocaleString('en')} votes.` }).int(`Choose between 1 and ${MAX_VOTES.toLocaleString('en')} votes.`).min(1, `Choose between 1 and ${MAX_VOTES.toLocaleString('en')} votes.`).max(MAX_VOTES, `Choose between 1 and ${MAX_VOTES.toLocaleString('en')} votes.`),
-});
+const voteCount = `Choose between 1 and ${MAX_VOTES.toLocaleString('en')} votes.`;
+
+/**
+ * POST payments/orders. Bought votes (anyone) or a VIP pass (the signed-in
+ * voter it's for). The price is always the server's.
+ */
+export const createOrderBody = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('votes'),
+        campaignId: objectId,
+        participantId: objectId,
+        votes: z.coerce.number({ error: voteCount }).int(voteCount).min(1, voteCount).max(MAX_VOTES, voteCount),
+    }),
+    z.object({ kind: z.literal('vip'), campaignId: objectId, participantId: objectId }),
+], { error: 'Choose what to pay for: votes or VIP.' });
 
 export const referenceParam = z.object({ reference: z.string().regex(/^A360-[A-Z0-9]+-[A-F0-9]{6}$/) });
 

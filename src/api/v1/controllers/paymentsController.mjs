@@ -1,9 +1,18 @@
 import * as orders from '../../../services/payments/orders.mjs';
+import { AppError } from '../../../utils/AppError.js';
 import { ipnFields } from '../schemas/payments.mjs';
 
-/** POST /payments/orders → { reference, redirectUrl }: the page sends the payer to PesaPal. */
+/**
+ * POST /payments/orders → { reference, redirectUrl }: the page sends the payer to PesaPal.
+ * Votes need no sign-in; a VIP pass is for the signed-in voter (optionalMember).
+ */
 export const createOrder = async (req, res) => {
-    res.status(201).json({ data: await orders.createVoteOrder(req.body) });
+    const { kind, campaignId, participantId, votes } = req.body;
+    if (kind === 'vip' && !req.member) throw new AppError('Sign in to become a VIP voter.', 401);
+    const order = kind === 'vip'
+        ? await orders.createVipOrder({ campaignId, participantId, memberId: req.member.id })
+        : await orders.createVoteOrder({ campaignId, participantId, votes });
+    res.status(201).json({ data: order });
 };
 
 /** GET /payments/orders/:reference: the payer's own order, checked with PesaPal while pending. */
