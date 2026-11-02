@@ -5,6 +5,7 @@ import { verifyAccessToken } from '../utils/tokens.mjs';
 import { isSessionOpen } from '../services/auth/sessions.mjs';
 import { findActiveStaff, toAdminUser } from '../services/auth/staff.mjs';
 import { findActiveOrganizer } from '../services/organisers/accounts.mjs';
+import { findActiveMember } from '../services/auth/members.mjs';
 
 const bearer = (req) => req.get('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? null;
 
@@ -36,6 +37,21 @@ export const requireOrganizer = async (req, res, next) => {
     const [open, organizer] = await Promise.all([isSessionOpen(payload.sid), findActiveOrganizer(payload.id)]);
     if (!open || !organizer) return next(signInFirst());
     req.organizer = organizer;
+    req.sessionId = payload.sid;
+    next();
+};
+
+/**
+ * A member route (a voter now; the stream site and the app later): a
+ * member-realm token, an open session and an active account. Sets
+ * `req.member` (the account row) and `req.sessionId`.
+ */
+export const requireMember = async (req, res, next) => {
+    const payload = verifyAccessToken(bearer(req), 'member');
+    if (!payload) return next(signInFirst());
+    const [open, member] = await Promise.all([isSessionOpen(payload.sid), findActiveMember(payload.id)]);
+    if (!open || !member) return next(signInFirst());
+    req.member = member;
     req.sessionId = payload.sid;
     next();
 };

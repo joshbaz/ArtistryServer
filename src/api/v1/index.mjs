@@ -8,6 +8,7 @@ import organiserRoutes from './routes/organiserRoutes.mjs';
 import organizerAuthRoutes from './routes/organizerAuthRoutes.mjs';
 import organizerPortalRoutes from './routes/organizerPortalRoutes.mjs';
 import paymentRoutes from './routes/paymentRoutes.mjs';
+import authRoutes from './routes/authRoutes.mjs';
 
 
 const router = express.Router();
@@ -16,6 +17,7 @@ const endpoints = [
     { path: '/health', router: healthRoutes },
     { path: '/auth/studio', router: studioAuthRoutes },
     { path: '/auth/organizer', router: organizerAuthRoutes },
+    { path: '/auth', router: authRoutes },
     { path: '/voting/studio', router: studioVotingRoutes },
     { path: '/voting', router: votingRoutes },
     { path: '/organisers', router: organiserRoutes },

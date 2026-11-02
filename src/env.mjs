@@ -31,6 +31,20 @@ const envSchema = z.object({
     PESAPAL_IPN_URL: z.url().optional(),
     // Tests only: point the client at a stand-in for PesaPal.
     PESAPAL_BASE_URL: z.url().optional(),
+    // Google sign-in (Google Cloud Console, Clients). A Google ID token is accepted when it was issued
+    // to one of these client IDs. The secret is for the stream site's redirect flow only.
+    GOOGLE_WEB_CLIENT_ID: z.string().endsWith(".apps.googleusercontent.com", "GOOGLE_WEB_CLIENT_ID must end in .apps.googleusercontent.com").optional(),
+    GOOGLE_ANDROID_CLIENT_ID: z.string().endsWith(".apps.googleusercontent.com", "GOOGLE_ANDROID_CLIENT_ID must end in .apps.googleusercontent.com").optional(),
+    GOOGLE_IOS_CLIENT_ID: z.string().endsWith(".apps.googleusercontent.com", "GOOGLE_IOS_CLIENT_ID must end in .apps.googleusercontent.com").optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    // Sign in with Apple (Apple Developer, Certificates, Identifiers & Profiles). An Apple ID token is
+    // accepted when it was issued to the Services ID (websites) or the bundle ID (the app).
+    APPLE_TEAM_ID: z.string().length(10, "APPLE_TEAM_ID is the 10-character Team ID").optional(),
+    APPLE_SERVICES_ID: z.string().min(1).optional(),
+    APPLE_BUNDLE_ID: z.string().min(1).optional(),
+    APPLE_KEY_ID: z.string().length(10, "APPLE_KEY_ID is the 10-character Key ID").optional(),
+    // The .p8 key downloaded with APPLE_KEY_ID, relative to server/. Needed to revoke Apple sign-in when an account is deleted.
+    APPLE_PRIVATE_KEY_PATH: z.string().min(1).optional(),
 });
 
 // A blank line in .env (KEY="") means "not set", so optional settings can be left empty.

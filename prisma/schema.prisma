@@ -37,7 +37,7 @@ model Staff {
 // Presenting the previous token after its 30-second grace means it was stolen, so the session is revoked.
 model Session {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  // member | admin; subjectId is the Member's or the Staff's id
+  // member | admin | organizer; subjectId is the Member's, Staff's or Organizer's id
   realm         String
   subjectId     String    @db.ObjectId
   tokenHash     String
@@ -56,6 +56,40 @@ model Session {
   revokedReason String?
 
   @@index([realm, subjectId])
+}
+
+// A member (member realm): a voter now, a stream-site and app viewer later. No password yet;
+// they sign in with Google or Apple (MemberIdentity). Email is indexed, not unique: Apple can hide it,
+// and on MongoDB a unique index counts every missing value as a duplicate null.
+model Member {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  name           String    @default("")
+  email          String?
+  emailVerified  Boolean   @default(false)
+  avatar         String    @default("")
+  // active | suspended
+  status         String    @default("active")
+  // google | apple: shown as "Voting as … with Google"
+  lastSignInWith String?
+  lastSignInAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([email])
+}
+
+// One way a member signs in: the provider's own id for them (the ID token's `sub`), which never changes.
+model MemberIdentity {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  // google | apple
+  provider  String
+  subject   String
+  email     String?
+  createdAt DateTime @default(now())
+
+  @@unique([provider, subject])
+  @@index([memberId])
 }
 
 // ── Voting ── (client/docs/10-voting.md)
@@ -120,6 +154,34 @@ model Contestant {
   updatedAt     DateTime @updatedAt
 
   @@unique([campaignId, number])
+}
+
+// When a voter last used their free vote in a campaign: one row per voter per campaign, so claiming
+// the next one is a single guarded update and two taps at once can't both count.
+model FreeVoteSlot {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  campaignId String   @db.ObjectId
+  memberId   String   @db.ObjectId
+  lastVoteAt DateTime
+
+  @@unique([campaignId, memberId])
+}
+
+// Every free vote counted, with the hashed IP and device it came from (decision 4), for the
+// device and network checks and for any later review. Never the raw IP or device id.
+model FreeVote {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  campaignId    String   @db.ObjectId
+  participantId String   @db.ObjectId
+  memberId      String   @db.ObjectId
+  votes         Int
+  ipHash        String
+  deviceHash    String
+  createdAt     DateTime @default(now())
+
+  @@index([campaignId, deviceHash, createdAt])
+  @@index([campaignId, ipHash, createdAt])
+  @@index([memberId])
 }
 
 // The public "Run a campaign" form, reviewed in Studio › Voting › Requests.

@@ -3,3 +3,7 @@ dist
 .env
 .DS_Store
 *.log
+
+# Sign-in keys (Apple .p8)
+keys/
+*.p8
