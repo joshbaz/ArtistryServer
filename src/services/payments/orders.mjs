@@ -87,8 +87,10 @@ const checkout = async (fields, description) => {
             reference: order.reference,
             amountUGX: order.amountUGX,
             description,
-            // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…; the campaign page checks the order from those.
-            callbackUrl: `${env.APP_URL}/voting/${order.campaignId}`,
+            // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…. Paid in the site's PesaPal
+            // window, this small page tells the window it's done; paid in a full tab, it goes on to
+            // the campaign page, which checks the order from those.
+            callbackUrl: `${env.APP_URL}/payment/return/${order.campaignId}`,
         });
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { trackingId } });
         return { reference: order.reference, redirectUrl };
