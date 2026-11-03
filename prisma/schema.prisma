@@ -467,3 +467,89 @@ model LiveClass {
   @@index([startsAt])
   @@index([liveStreamId])
 }
+
+// ── Streaming (stream.theartistry360.com and the app; Studio › Streaming) ──
+
+// Video types, categories and content warnings. `key` is what every client calls its id
+// (titles store type and category keys, and warning names); it stays when the name changes.
+model StreamTerm {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  // type | category | advisory
+  kind      String
+  key       String
+  name      String
+  // The name in lower case: one spelling per list.
+  nameKey   String
+  slug      String
+  createdAt DateTime @default(now())
+
+  @@unique([kind, key])
+  @@unique([kind, nameKey])
+}
+
+// A film or a series. The id (ttl_001) is in every stream site and app link, so it never changes or comes back.
+model StreamTitle {
+  id            String    @id @map("_id")
+  title         String
+  // A StreamTerm type key.
+  type          String
+  // film | series
+  format        String    @default("film")
+  synopsis      String    @default("")
+  description   String    @default("")
+  // StreamTerm category keys.
+  categoryIds   String[]
+  language      String    @default("English")
+  ageRating     String    @default("PG")
+  // Content warning names.
+  advisories    String[]
+  releaseYear   Int
+  // [{ name, role }]
+  cast          Json      @default("[]")
+  crew          Json      @default("[]")
+  poster        String    @default("")
+  backdrop      String    @default("")
+  // The film's upload: { status: none|uploading|processing|ready|failed, assetId?, duration?, … }. Set by uploads and the provider, never by a form.
+  video         Json      @default("{\"status\":\"none\"}")
+  // The same for the trailer, plus playbackUrl and autoplay.
+  trailer       Json?
+  // [{ lang, label, src }]
+  captions      Json      @default("[]")
+  // A series' [{ number, title, episodes[{ id, number, title, synopsis, still, video, intro?, releaseAt? }] }].
+  seasons       Json?
+  // free | subscription | ppv (only ppv has a price)
+  accessTier    String    @default("subscription")
+  priceUGX      Int       @default(0)
+  // draft | scheduled | published | unpublished
+  publishStatus String    @default("draft")
+  releaseAt     DateTime?
+  featured      Boolean   @default(false)
+  views         Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([publishStatus])
+}
+
+// A subscription plan sold on the stream site. The id (plan_monthly) is what the app's store products point at.
+model StreamPlan {
+  id        String   @id @map("_id")
+  name      String
+  priceUGX  Int
+  // month | quarter | year
+  interval  String
+  benefits  String[]
+  active    Boolean  @default(true)
+  highlight Boolean  @default(false)
+  // The order the stream site lists them in.
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A settings document the Studio edits as a whole: "stream-site" (the stream site's home page) and "stream-ads".
+model SettingsDoc {
+  id        String   @id @map("_id")
+  data      Json
+  updatedAt DateTime @updatedAt
+}

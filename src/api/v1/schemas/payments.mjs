@@ -21,7 +21,7 @@ export const createOrderBody = z.discriminatedUnion('kind', [
 export const referenceParam = z.object({ reference: z.string().regex(/^A360-[A-Z0-9]+-[A-F0-9]{6}$/) });
 
 /** GET payments/orders (Studio) */
-export const listOrdersQuery = z.object({ module: z.literal('voting', { error: 'Name the module: voting.' }) });
+export const listOrdersQuery = z.object({ module: z.enum(['voting', 'streaming'], { error: 'Name the module: voting or streaming.' }) });
 
 /** PesaPal's IPN, as query (GET) or body (POST). Unknown fields are dropped. */
 export const ipnFields = z.object({

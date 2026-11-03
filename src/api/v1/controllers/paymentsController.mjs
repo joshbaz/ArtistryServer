@@ -20,9 +20,12 @@ export const getOrder = async (req, res) => {
     res.json({ data: await orders.getForPayer(req.params.reference) });
 };
 
-/** GET /payments/orders?module=voting (Studio) */
+/**
+ * GET /payments/orders?module=voting|streaming (Studio). Streaming doesn't take
+ * payments yet (subscriptions and pay-per-view come with its checkout), so it has none.
+ */
 export const listOrders = async (req, res) => {
-    res.json({ data: await orders.listVotingOrders() });
+    res.json({ data: req.query.module === 'streaming' ? [] : await orders.listVotingOrders() });
 };
 
 /**

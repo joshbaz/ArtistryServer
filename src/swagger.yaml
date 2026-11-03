@@ -42,6 +42,11 @@ tags:
     description: The organizer realm, shaped like Studio auth. Cookie a360_rt_organizer on /api/v1/auth/organizer.
   - name: Organiser dashboard
     description: The signed-in organiser's own campaigns, contestants, results, payouts and profile. Someone else's campaign is a 404.
+  - name: Streaming
+    description: |
+      The catalogue stream.theartistry360.com and the app read (published titles, types, categories, warnings, active
+      plans, the home page settings) and Studio › Streaming. Any Studio role reads /streaming/studio; a Content Manager
+      edits the library, lists, ads and stream site; Finance edits plans. Videos are set only by uploads, never by a form.
   - name: Studio organisers
     description: Organiser accounts, invites, access and share (Super Admin); payout requests (Finance).
   - name: Website
@@ -909,6 +914,80 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, maxLength: 1000 } } } } } }
       responses:
         '201': { description: The request }
+  /streaming/titles:
+    get:
+      tags: [Streaming]
+      summary: Public titles (published, with something to watch); ?q= searches title, story, cast and crew
+      parameters: [{ in: query, name: q, schema: { type: string } }]
+      responses:
+        '200': { description: 'Titles; never a playback link or upload details' }
+    post:
+      tags: [Streaming]
+      summary: A new title (Content Manager); always a draft with no video; format series starts with Season 1
+      security: [{ bearer: [] }]
+      responses:
+        '201': { description: The title }
+        '422': { description: Unknown type or category, ppv under UGX 500, scheduled without a future time }
+  /streaming/titles/{id}:
+    get:
+      tags: [Streaming]
+      summary: One public title (404 for anything not public)
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,59}$' } }]
+      responses: { '200': { description: The title }, '404': { description: Not public } }
+    patch:
+      tags: [Streaming]
+      summary: Edit a title (Content Manager); video, trailer, views and format are not set here
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,59}$' } }]
+      responses: { '200': { description: The title } }
+    delete:
+      tags: [Streaming]
+      summary: Delete a title (it also leaves the stream site hero)
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,59}$' } }]
+      responses: { '204': { description: Gone } }
+  /streaming/studio/titles:
+    get:
+      tags: [Streaming]
+      summary: Every title, drafts too (any Studio role); /streaming/studio/titles/{id} for one
+      security: [{ bearer: [] }]
+      responses: { '200': { description: Titles } }
+  /streaming/titles/{id}/seasons:
+    post:
+      tags: [Streaming]
+      summary: 'Add a season to a series. Also: PATCH/DELETE …/seasons/{n}, POST …/seasons/{n}/episodes, PATCH/DELETE …/episodes/{episodeId}, DELETE …/episodes/{episodeId}/video, DELETE …/video, PATCH/DELETE …/trailer'
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,59}$' } }]
+      responses:
+        '201': { description: The whole title }
+        '409': { description: 'not_series, season_not_empty, a taken episode number, or someone else saved first' }
+  /streaming/types:
+    get:
+      tags: [Streaming]
+      summary: 'Video types { id, name, slug }; POST, PATCH/DELETE /{id} (Content Manager; 409 type_in_use). /streaming/categories and /streaming/advisories work the same'
+      responses: { '200': { description: The list } }
+  /streaming/plans:
+    get:
+      tags: [Streaming]
+      summary: Active plans in order; the Studio reads all at /streaming/studio/plans; POST, PATCH/DELETE /{id} (Finance)
+      responses: { '200': { description: Plans } }
+  /streaming/subscribers:
+    get:
+      tags: [Streaming]
+      summary: Subscribers (Finance); empty until streaming takes payments
+      security: [{ bearer: [] }]
+      responses: { '200': { description: '[]' } }
+  /streaming/ads:
+    get:
+      tags: [Streaming]
+      summary: Ad settings (any Studio role); PATCH merges a section in (Content Manager)
+      security: [{ bearer: [] }]
+      responses: { '200': { description: '{ general, web, app }' } }
+  /stream/site:
+    get:
+      tags: [Streaming]
+      summary: The stream site home page settings (public); PATCH (Content Manager) merges sections, rows are replaced whole
+      responses: { '200': { description: '{ community, hero{ featuredIds, autoplayTrailers }, rows[], announcement }' } }
 components:
   securitySchemes:
     bearer:

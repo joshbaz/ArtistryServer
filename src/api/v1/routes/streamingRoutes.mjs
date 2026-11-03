@@ -1,0 +1,69 @@
+import express from 'express';
+import validate from '../../../middleware/validate.mjs';
+import { allow, requireAdmin } from '../../../middleware/auth.mjs';
+import * as schema from '../schemas/streaming.mjs';
+import * as controller from '../controllers/streamingController.mjs';
+
+/**
+ * Streaming. The stream site and the app read the public catalogue (published
+ * titles, types, categories, warnings, active plans). The Studio reads
+ * everything under /studio (any role), a Content Manager edits the library,
+ * lists and ads, and Finance looks after plans and subscribers.
+ */
+const router = express.Router();
+const title = validate(schema.titleParam, 'params');
+const season = validate(schema.seasonParam, 'params');
+const episode = validate(schema.episodeParam, 'params');
+const term = validate(schema.termParam, 'params');
+const editor = [requireAdmin, allow('content-manager')];
+const finance = [requireAdmin, allow('finance')];
+
+/* Catalogue (public). ?published=true is what the clients send; only published titles are ever listed here. */
+router.get('/titles', validate(schema.titlesQuery, 'query'), controller.listPublicTitles);
+router.get('/titles/:id', title, controller.getPublicTitle);
+
+/* Library (Studio) */
+router.get('/studio/titles', requireAdmin, controller.listTitles);
+router.get('/studio/titles/:id', title, requireAdmin, controller.getTitle);
+router.post('/titles', ...editor, validate(schema.createTitleBody), controller.createTitle);
+router.patch('/titles/:id', title, ...editor, validate(schema.updateTitleBody), controller.updateTitle);
+router.delete('/titles/:id', title, ...editor, controller.deleteTitle);
+router.delete('/titles/:id/video', title, ...editor, controller.removeTitleVideo);
+router.patch('/titles/:id/trailer', title, ...editor, validate(schema.trailerBody), controller.setTrailer);
+router.delete('/titles/:id/trailer', title, ...editor, controller.removeTrailer);
+
+/* Seasons and episodes */
+router.post('/titles/:id/seasons', title, ...editor, controller.addSeason);
+router.patch('/titles/:id/seasons/:number', season, ...editor, validate(schema.seasonBody), controller.renameSeason);
+router.delete('/titles/:id/seasons/:number', season, ...editor, controller.removeSeason);
+router.post('/titles/:id/seasons/:number/episodes', season, ...editor, validate(schema.createEpisodeBody), controller.addEpisode);
+router.patch('/titles/:id/episodes/:episodeId', episode, ...editor, validate(schema.updateEpisodeBody), controller.updateEpisode);
+router.delete('/titles/:id/episodes/:episodeId', episode, ...editor, controller.deleteEpisode);
+router.delete('/titles/:id/episodes/:episodeId/video', episode, ...editor, controller.removeEpisodeVideo);
+
+/* Types, categories, content warnings */
+for (const [path, kind] of [['types', 'type'], ['categories', 'category'], ['advisories', 'advisory']]) {
+    router.get(`/${path}`, controller.listTerms(kind));
+    router.post(`/${path}`, ...editor, validate(schema.termBody), controller.createTerm(kind));
+    router.patch(`/${path}/:id`, term, ...editor, validate(schema.termBody), controller.updateTerm(kind));
+    router.delete(`/${path}/:id`, term, ...editor, controller.deleteTerm(kind));
+}
+
+/* Plans and subscribers */
+router.get('/plans', controller.listPlans);
+router.get('/studio/plans', requireAdmin, controller.listAllPlans);
+router.post('/plans', ...finance, validate(schema.createPlanBody), controller.createPlan);
+router.patch('/plans/:id', term, ...finance, validate(schema.updatePlanBody), controller.updatePlan);
+router.delete('/plans/:id', term, ...finance, controller.deletePlan);
+router.get('/subscribers', ...finance, controller.listSubscribers);
+
+/* Ads (the app IDs and ad tag are the Studio's to see) */
+router.get('/ads', requireAdmin, controller.getAds);
+router.patch('/ads', ...editor, validate(schema.adsBody), controller.updateAds);
+
+export default router;
+
+/** `/stream`: the stream site's home page settings (public read, a Content Manager edits). */
+export const streamSiteRouter = express.Router();
+streamSiteRouter.get('/site', controller.getStreamSite);
+streamSiteRouter.patch('/site', ...editor, validate(schema.streamSiteBody), controller.updateStreamSite);
