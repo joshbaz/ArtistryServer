@@ -730,8 +730,8 @@ paths:
   /academy/webhooks/{provider}:
     post:
       tags: [Website]
-      summary: The video provider's webhook (Mux-Signature checked); live, idle and recording-ready events
-      parameters: [{ in: path, name: provider, required: true, schema: { type: string, enum: [mux] } }]
+      summary: The video provider's webhook (Mux-Signature, or Cloudflare's cf-webhook-auth / Webhook-Signature, checked); live, idle and recording-ready events
+      parameters: [{ in: path, name: provider, required: true, schema: { type: string, enum: [mux, cloudflare] } }]
       responses:
         '200': { description: '{ received: true }' }
         '401': { description: Bad signature }

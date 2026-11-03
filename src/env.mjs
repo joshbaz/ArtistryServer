@@ -47,7 +47,7 @@ const envSchema = z.object({
     APPLE_PRIVATE_KEY_PATH: z.string().min(1).optional(),
 
     // Video for live classes (services/video). Without a token, the Studio's stream setup says it isn't connected yet.
-    VIDEO_PROVIDER: z.enum(["mux"]).default("mux"),
+    VIDEO_PROVIDER: z.enum(["mux", "cloudflare"]).default("mux"),
     MUX_TOKEN_ID: z.string().min(1).optional(),
     MUX_TOKEN_SECRET: z.string().min(1).optional(),
     MUX_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -56,6 +56,18 @@ const envSchema = z.object({
     MUX_SIGNING_PRIVATE_KEY: z.string().min(1).optional(),
     // Only to point tests at a stand-in for Mux's API.
     MUX_API_URL: z.url().optional(),
+    // Cloudflare Stream: the account, an API token with Stream Write, and the "customer-<code>" part of its playback links.
+    CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
+    CLOUDFLARE_STREAM_API_TOKEN: z.string().min(1).optional(),
+    CLOUDFLARE_STREAM_CUSTOMER_CODE: z.string().min(1).optional(),
+    // Its two webhooks: Stream's (recording ready) and Notifications' (live input connected / disconnected).
+    CLOUDFLARE_STREAM_WEBHOOK_SECRET: z.string().min(1).optional(),
+    CLOUDFLARE_NOTIFICATION_SECRET: z.string().min(1).optional(),
+    // Signed playback: the signing key's id and its base64 pem, as Cloudflare returns them.
+    CLOUDFLARE_STREAM_SIGNING_KEY_ID: z.string().min(1).optional(),
+    CLOUDFLARE_STREAM_SIGNING_KEY: z.string().min(1).optional(),
+    // Only to point tests at a stand-in for Cloudflare's API.
+    CLOUDFLARE_API_URL: z.url().optional(),
 });
 
 // A blank line in .env (KEY="") means "not set", so optional settings can be left empty.

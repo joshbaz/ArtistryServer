@@ -43,6 +43,9 @@ const call = async (method, path, body) => {
     if (!res.ok) {
         const detail = await res.text().catch(() => '');
         console.error(`Mux ${method} ${path} answered ${res.status}: ${detail.slice(0, 300)}`);
+        // A request Mux turned down (e.g. "Live streams are unavailable on the free plan"): only the Studio calls this, so say why.
+        const reason = res.status < 500 && (() => { try { return JSON.parse(detail).error?.messages?.join(' '); } catch { return null; } })();
+        if (reason) throw new AppError(`Mux turned this down: ${reason}`, 502, { code: 'video_provider_refused' });
         throw unreachable();
     }
     return res.status === 204 ? null : (await res.json()).data;

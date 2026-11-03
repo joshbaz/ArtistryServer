@@ -146,7 +146,7 @@ export const getIngest = async (id) => {
 export const handleWebhook = async (providerName, rawBody, headers) => {
     const provider = videoProvider(providerName);
     if (!provider) throw new AppError('Unknown video provider.', 404);
-    const event = provider.readWebhook(rawBody ?? Buffer.alloc(0), headers);
+    const event = await provider.readWebhook(rawBody ?? Buffer.alloc(0), headers);
     if (!event) return;
     const where = { videoProvider: providerName, liveStreamId: event.liveStreamId };
     const now = new Date();

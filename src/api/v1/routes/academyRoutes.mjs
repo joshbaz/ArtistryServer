@@ -17,7 +17,7 @@ const editor = allow('content-manager');
 
 router.get('/timetable', controller.timetable);
 router.get('/live-classes/:id/watch', id, controller.watchClass);
-router.post('/webhooks/:provider', validate(z.object({ provider: z.enum(['mux']) }), 'params'), controller.videoWebhook);
+router.post('/webhooks/:provider', validate(z.object({ provider: z.enum(['mux', 'cloudflare']) }), 'params'), controller.videoWebhook);
 
 router.get('/live-classes', requireAdmin, controller.listLiveClasses);
 router.post('/live-classes', requireAdmin, editor, validate(schema.createLiveClassBody), controller.createLiveClass);
