@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "concurrently \"node esbuild.config.mjs --watch\" \"nodemon dist/index.cjs\"",
     "start": "node dist/index.cjs",
+    "worker": "node dist/worker.cjs",
     "build": "rimraf dist && NODE_ENV='production' node esbuild.config.mjs",
     "postinstall": "prisma generate",
     "postbuild": "prisma generate",
@@ -14,7 +15,8 @@
     "staff:create": "node scripts/create-staff.mjs",
     "seed:voting": "node scripts/seed-voting.mjs",
     "seed:website": "node scripts/seed-website.mjs",
-    "seed:streaming": "node scripts/seed-streaming.mjs"
+    "seed:streaming": "node scripts/seed-streaming.mjs",
+    "spaces:setup": "node scripts/spaces-setup.mjs"
   },
   "author": "Joshua Kimbareeba",
   "license": "MIT",
@@ -30,6 +32,8 @@
     "rimraf": "6.0.1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3",
+    "@aws-sdk/s3-request-presigner": "^3",
     "@prisma/client": "6.5.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "argon2": "^0.44.0",

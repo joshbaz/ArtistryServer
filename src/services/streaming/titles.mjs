@@ -5,12 +5,14 @@ import { invalidateSite } from '../../utils/sockets.js';
 import { withNextNumber } from '../system/counters.mjs';
 import { dropFromHero } from './settings.mjs';
 import { knownAdvisories, missingKeys } from './terms.mjs';
+import { discardAssets, discardEpisodeAssets, discardTitleAssets, later } from './assets.mjs';
 
 /**
  * The streaming library (Studio › Streaming › Library) and the catalogue the
  * stream site and the app read. A film has one video; a series has seasons of
  * episodes, each with its own. Videos and trailers are set only by uploads
- * and the video provider, never by a form, so "ready" is always true.
+ * and the encoder (uploads.mjs, encoder.mjs), never by a form, so "ready"
+ * is always true. Removing or replacing one deletes its files from Spaces.
  *
  * A title is public once it's published (or scheduled and its time has come)
  * and has something to watch: a ready video, or for a series, a released
@@ -202,6 +204,7 @@ export const deleteTitle = async (id) => {
     if (!count) return;
     await dropFromHero(id);
     changed(id);
+    later(discardTitleAssets(id));
 };
 
 /**
@@ -289,22 +292,62 @@ export const updateEpisode = (id, episodeId, patch) =>
         Object.assign(episode, patch);
     });
 
-export const deleteEpisode = (id, episodeId) =>
-    editSeasons(id, (seasons) => {
+export const deleteEpisode = async (id, episodeId) => {
+    const title = await editSeasons(id, (seasons) => {
         const { season } = findEpisode(seasons, episodeId);
         season.episodes = season.episodes.filter((e) => e.id !== episodeId);
     });
+    later(discardEpisodeAssets(id, episodeId));
+    return title;
+};
 
-/* Videos: removing one (uploads attach them, through the video provider) */
+/* Videos: each upload fills a slot (a film's video, an episode's, or the trailer) */
 
-export const removeTitleVideo = (id) => edit(id, (t) => (t.video?.status === 'none' ? null : { video: NO_VIDEO }));
-
-export const removeEpisodeVideo = (id, episodeId) =>
-    editSeasons(id, (seasons) => {
-        findEpisode(seasons, episodeId).episode.video = NO_VIDEO;
+/**
+ * Puts `video` in a slot and answers `{ title, applied, previous }`, where
+ * previous is the asset the slot held before. With `onlyIf`, only while the
+ * slot still holds that asset: an encode that finishes after its upload was
+ * replaced or removed changes nothing. A trailer keeps its autoplay setting.
+ */
+export const setSlot = async ({ titleId, episodeId = null, kind = 'video' }, video, { onlyIf } = {}) => {
+    let previous = null;
+    let applied = true;
+    const pick = (current) => {
+        previous = current?.assetId ?? null;
+        applied = !onlyIf || previous === onlyIf;
+        return applied;
+    };
+    const title = await edit(titleId, (t) => {
+        if (kind === 'trailer') {
+            if (!pick(t.trailer)) return null;
+            return { trailer: video.status === 'none' ? null : { autoplay: t.trailer?.autoplay ?? true, ...video } };
+        }
+        if (episodeId) {
+            if (t.format !== 'series') throw notSeries();
+            const seasons = structuredClone(t.seasons ?? []);
+            const { episode } = findEpisode(seasons, episodeId);
+            if (!pick(episode.video)) return null;
+            episode.video = video;
+            return { seasons };
+        }
+        if (!pick(t.video)) return null;
+        return { video };
     });
+    return { title, applied, previous };
+};
 
-export const removeTrailer = (id) => edit(id, (t) => (t.trailer ? { trailer: null } : null));
+/** Empties a slot and deletes the video that was in it. */
+const clearSlot = async (target) => {
+    const { title, previous } = await setSlot(target, NO_VIDEO);
+    later(discardAssets([previous]));
+    return title;
+};
+
+export const removeTitleVideo = (id) => clearSlot({ titleId: id });
+
+export const removeEpisodeVideo = (id, episodeId) => clearSlot({ titleId: id, episodeId });
+
+export const removeTrailer = (id) => clearSlot({ titleId: id, kind: 'trailer' });
 
 /** Whether the stream site's hero may autoplay this title's trailer. */
 export const setTrailerAutoplay = (id, autoplay) =>
@@ -312,3 +355,26 @@ export const setTrailerAutoplay = (id, autoplay) =>
         if (!t.trailer) throw new AppError('This title has no trailer yet.', 409, { code: 'no_trailer' });
         return { trailer: { ...t.trailer, autoplay } };
     });
+
+/**
+ * What a viewer asked to play: the title as stored and the slot's video,
+ * when the title is out and the video ready. The Studio may play drafts and
+ * unreleased episodes, to check them.
+ */
+export const findWatchable = async ({ titleId, episodeId = null }, { studio = false } = {}) => {
+    const unavailable = () => new AppError("That title isn't available.", 404);
+    const t = await prisma.streamTitle.findUnique({ where: { id: titleId } });
+    const now = Date.now();
+    if (!t || (!studio && !isLive(t, now))) throw unavailable();
+    let video = t.video;
+    let intro = null;
+    if (t.format === 'series') {
+        if (!episodeId) throw fieldError('episodeId', 'Choose an episode to play.');
+        const episode = (t.seasons ?? []).flatMap((s) => s.episodes).find((e) => e.id === episodeId);
+        if (!episode || (!studio && !isOut(episode.releaseAt, now))) throw new AppError("That episode isn't available.", 404);
+        video = episode.video;
+        intro = episode.intro ?? null;
+    }
+    if (!ready(video) || !video.assetId) throw new AppError("This video isn't ready to play yet.", 409, { code: 'not_ready' });
+    return { title: t, video, intro };
+};

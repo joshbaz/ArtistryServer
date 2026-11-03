@@ -1,6 +1,6 @@
 import express from 'express';
 import validate from '../../../middleware/validate.mjs';
-import { allow, requireAdmin } from '../../../middleware/auth.mjs';
+import { allow, optionalMember, requireAdmin } from '../../../middleware/auth.mjs';
 import * as schema from '../schemas/streaming.mjs';
 import * as controller from '../controllers/streamingController.mjs';
 
@@ -8,7 +8,9 @@ import * as controller from '../controllers/streamingController.mjs';
  * Streaming. The stream site and the app read the public catalogue (published
  * titles, types, categories, warnings, active plans). The Studio reads
  * everything under /studio (any role), a Content Manager edits the library,
- * lists and ads, and Finance looks after plans and subscribers.
+ * lists and ads, and Finance looks after plans and subscribers. A Content
+ * Manager uploads videos (straight to Spaces); viewers play them through
+ * /playback and /play.
  */
 const router = express.Router();
 const title = validate(schema.titleParam, 'params');
@@ -56,6 +58,21 @@ router.post('/plans', ...finance, validate(schema.createPlanBody), controller.cr
 router.patch('/plans/:id', term, ...finance, validate(schema.updatePlanBody), controller.updatePlan);
 router.delete('/plans/:id', term, ...finance, controller.deletePlan);
 router.get('/subscribers', ...finance, controller.listSubscribers);
+
+/* Uploads */
+const upload = validate(schema.uploadParam, 'params');
+router.post('/uploads', ...editor, validate(schema.startUploadBody), controller.startUpload);
+router.get('/uploads/:assetId', upload, ...editor, controller.getUpload);
+router.post('/uploads/:assetId/parts', upload, ...editor, validate(schema.signPartsBody), controller.signParts);
+router.post('/uploads/:assetId/complete', upload, ...editor, controller.completeUpload);
+router.post('/uploads/:assetId/abort', upload, ...editor, validate(schema.abortUploadBody), controller.abortUpload);
+
+/* Playback: a link for one viewer, then the playlists and key it points at */
+router.post('/playback', optionalMember, validate(schema.playbackBody), controller.startPlayback);
+router.post('/studio/playback', requireAdmin, validate(schema.playbackBody), controller.previewPlayback);
+router.get('/play/:token/master.m3u8', validate(schema.playParam, 'params'), controller.masterPlaylist);
+router.get('/play/:token/key', validate(schema.playParam, 'params'), controller.playbackKey);
+router.get('/play/:token/:rendition/index.m3u8', validate(schema.playRenditionParam, 'params'), controller.renditionPlaylist);
 
 /* Ads (the app IDs and ad tag are the Studio's to see) */
 router.get('/ads', requireAdmin, controller.getAds);

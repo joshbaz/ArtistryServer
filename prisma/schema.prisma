@@ -488,6 +488,41 @@ model StreamTerm {
 }
 
 // A film or a series. The id (ttl_001) is in every stream site and app link, so it never changes or comes back.
+// One uploaded video in Spaces: a film's, an episode's or a title's trailer. The title holds a copy of
+// what the Studio shows (status, size, length); this holds the upload, the encode and the key.
+model VideoAsset {
+  id          String   @id @map("_id")
+  titleId     String
+  // Set for an episode's video.
+  episodeId   String?
+  // video | trailer
+  kind        String   @default("video")
+  // uploading | processing | ready | failed | cancelled
+  status      String   @default("uploading")
+  fileName    String
+  size        Float
+  contentType String   @default("video/mp4")
+  // originals/<id>/<file> in the bucket, and the multipart upload sending it.
+  originalKey String
+  uploadId    String?
+  partSize    Int
+  // Encode results: seconds, the source's size, [{ name, height, bitrate }].
+  duration    Float    @default(0)
+  width       Int      @default(0)
+  height      Int      @default(0)
+  renditions  Json     @default("[]")
+  // The AES-128 key the pieces are locked with (hex). None for a trailer, which anyone may watch.
+  keyHex      String?
+  progress    Int      @default(0)
+  error       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([titleId])
+  @@index([status, updatedAt])
+}
+
 model StreamTitle {
   id            String    @id @map("_id")
   title         String

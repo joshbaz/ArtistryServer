@@ -174,3 +174,34 @@ export const streamSiteBody = z.object({
 
 /** GET streaming/titles?published=true&q= */
 export const titlesQuery = z.object({ q: text(100).optional() });
+
+/* Uploads (the Studio, straight to Spaces) and playback */
+
+const GB = 1024 ** 3;
+const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'application/octet-stream', ''];
+
+/** POST streaming/uploads: where the file goes (a film, an episode, or a title's trailer) and what it is. */
+export const startUploadBody = z
+    .object({
+        titleId: key,
+        episodeId: key.nullish(),
+        kind: z.enum(['video', 'trailer']).default('video'),
+        fileName: z.string().trim().min(1).max(255).refine((v) => /\.(mp4|mov|webm|mkv)$/i.test(v), 'Use an MP4, MOV, WebM or MKV file.'),
+        size: z.number().int().min(1, 'That file is empty.').max(20 * GB, 'That file is over the 20 GB limit.'),
+        contentType: z.string().trim().max(100).default('video/mp4').refine((v) => VIDEO_TYPES.includes(v), 'Use an MP4, MOV, WebM or MKV file.'),
+    })
+    .transform(({ contentType, ...rest }) => ({ ...rest, contentType: contentType && contentType !== 'application/octet-stream' ? contentType : 'video/mp4' }));
+
+export const uploadParam = z.object({ assetId: z.string().regex(/^ast_[a-f0-9]{16}$/, 'Upload not found.') });
+
+/** POST streaming/uploads/:assetId/parts: up to 20 part links at a time. */
+export const signPartsBody = z.object({ partNumbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(20) });
+
+/** POST streaming/uploads/:assetId/abort: cancelled (the default), or failed with what the browser saw. */
+export const abortUploadBody = z.object({ failed: z.boolean().default(false), error: z.string().trim().max(200).optional() });
+
+/** POST streaming/playback (and the Studio's preview): a film, or one episode of a series. */
+export const playbackBody = z.object({ titleId: key, episodeId: key.nullish() });
+
+export const playParam = z.object({ token: z.string().regex(/^[\w-]+\.[\w-]+\.[\w-]+$/, 'This playback link has expired. Press play again.') });
+export const playRenditionParam = playParam.extend({ rendition: z.string().regex(/^\d{3,4}p$/, 'We could not find that.') });

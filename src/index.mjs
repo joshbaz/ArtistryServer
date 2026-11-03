@@ -6,6 +6,9 @@ import { setupSocketIO } from './utils/sockets.js';
 import { connectRedis } from './utils/redis.mjs';
 import { startScheduler } from './jobs/scheduler.mjs';
 import { isMailConfigured } from './services/emails/zohoMail.js';
+import { startVideoWorker } from './jobs/videoQueue.mjs';
+import { encodeAsset, giveUp } from './services/streaming/encoder.mjs';
+import { isConfigured as isSpacesConfigured } from './services/storage/spaces.mjs';
 
 const app = express();
 
@@ -49,6 +52,10 @@ app.start = async () => {
         startScheduler();
 
         if (!isMailConfigured()) console.info('Email: no Zoho mailbox set up, so nothing is sent');
+
+        // Converting uploads; with VIDEO_WORKER=off a separate `yarn worker` does it.
+        if (!isSpacesConfigured()) console.info('Streaming: no Spaces bucket set up, so video uploads are off');
+        else if (env.VIDEO_WORKER === 'on') startVideoWorker({ encode: encodeAsset, onGiveUp: giveUp });
     });
 
     if (env.NODE_ENV !== 'test') {

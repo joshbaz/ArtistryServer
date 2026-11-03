@@ -5,7 +5,8 @@ const isProduction = process.env.NODE_ENV === "production";
 async function build() {
     try {
         const context = await esbuild.context({
-            entryPoints: ["src/index.mjs"],
+            // The API, and the encode worker for running on its own (yarn worker).
+            entryPoints: ["src/index.mjs", "src/worker.mjs"],
             alias: {
                 "@": "./src",
             },

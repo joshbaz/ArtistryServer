@@ -983,6 +983,30 @@ paths:
       summary: Ad settings (any Studio role); PATCH merges a section in (Content Manager)
       security: [{ bearer: [] }]
       responses: { '200': { description: '{ general, web, app }' } }
+  /streaming/uploads:
+    post:
+      tags: [Streaming]
+      summary: 'Start an upload to Spaces (Content Manager): { titleId, episodeId?, kind: video|trailer, fileName, size, contentType } → { assetId, partSize, partCount }. The slot shows uploading; the video it held is deleted'
+      security: [{ bearer: [] }]
+      responses: { '201': { description: '{ assetId, status, progress, partSize, partCount }' }, '404': { description: No such title or episode }, '503': { description: 'uploads_not_connected (no Spaces bucket set up)' } }
+  /streaming/uploads/{assetId}:
+    get:
+      tags: [Streaming]
+      summary: 'An upload''s state (Content Manager): { status: uploading|processing|ready|failed, progress, error }. POST /parts { partNumbers } → [{ partNumber, url }] to PUT each part to; POST /complete; POST /abort { failed?, error? }'
+      security: [{ bearer: [] }]
+      parameters: [{ name: assetId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: '{ assetId, status, progress, partSize, partCount, duration, error }' }, '409': { description: 'parts_missing (complete) or upload_closed (parts)' } }
+  /streaming/playback:
+    post:
+      tags: [Streaming]
+      summary: 'A playback link for one viewer: { titleId, episodeId? } → { url, expiresAt, duration, intro }. Free titles play signed out; others 401, then 403 locked with details.reason (subscribe | rent + priceUGX). /streaming/studio/playback previews any title (any Studio role)'
+      responses: { '200': { description: 'url: /streaming/play/{token}/master.m3u8, good for 6 hours' }, '403': { description: locked }, '409': { description: not_ready } }
+  /streaming/play/{token}/master.m3u8:
+    get:
+      tags: [Streaming]
+      summary: 'The HLS master playlist behind a playback link; {size}/index.m3u8 lists its pieces (on the Spaces CDN) and /key is the AES-128 key'
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: application/vnd.apple.mpegurl }, '403': { description: playback_expired } }
   /stream/site:
     get:
       tags: [Streaming]

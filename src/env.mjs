@@ -68,6 +68,27 @@ const envSchema = z.object({
     CLOUDFLARE_STREAM_SIGNING_KEY: z.string().min(1).optional(),
     // Only to point tests at a stand-in for Cloudflare's API.
     CLOUDFLARE_API_URL: z.url().optional(),
+
+    // Streaming videos in DigitalOcean Spaces (services/storage/spaces.mjs). Without the key and secret,
+    // the Studio's uploads say they aren't connected yet. The region is the bucket's (fra1, ams3, sgp1…).
+    SPACES_REGION: z.string().regex(/^[a-z]{3}\d$/, "SPACES_REGION is the bucket's region, like fra1").optional(),
+    SPACES_BUCKET: z.string().min(3).optional(),
+    SPACES_KEY: z.string().min(1).optional(),
+    SPACES_SECRET: z.string().min(1).optional(),
+    // The bucket's CDN address. Defaults to https://<bucket>.<region>.cdn.digitaloceanspaces.com.
+    SPACES_CDN_URL: z.url().optional(),
+    // Only to point tests at a stand-in for Spaces (MinIO).
+    SPACES_ENDPOINT: z.url().optional(),
+    // Converting uploads to HLS with ffmpeg (services/streaming/encoder.mjs). "off" leaves it to a
+    // separate worker process (yarn worker), on its own droplet.
+    VIDEO_WORKER: z.enum(["on", "off"]).default("on"),
+    VIDEO_ENCODE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+    // ffmpeg's x264 preset: faster encodes, or smaller files at the same quality.
+    VIDEO_ENCODE_PRESET: z.enum(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"]).default("veryfast"),
+    // Where encodes are written before they go to Spaces. A 2-hour film needs about 8 GB free.
+    VIDEO_WORK_DIR: z.string().min(1).optional(),
+    FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
+    FFPROBE_PATH: z.string().min(1).default("ffprobe"),
 });
 
 // A blank line in .env (KEY="") means "not set", so optional settings can be left empty.

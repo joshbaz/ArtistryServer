@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { redis } from '../utils/redis.mjs';
 import { expireStaleOrders } from '../services/payments/orders.mjs';
+import { closeStaleUploads } from '../services/streaming/uploads.mjs';
 
 const MINUTE = 60 * 1000;
 
@@ -14,6 +15,8 @@ const MINUTE = 60 * 1000;
 const TASKS = [
     // Checkouts nobody finished get a last check with PesaPal, and are closed after a day.
     { name: 'expire-unpaid-orders', every: 15 * MINUTE, run: expireStaleOrders, done: (n) => n && `Closed ${n} unpaid checkout${n === 1 ? '' : 's'}` },
+    // Studio uploads left open a day (the tab closed mid-way) are closed, and their parts deleted from Spaces.
+    { name: 'close-stale-uploads', every: 60 * MINUTE, run: closeStaleUploads, done: (n) => n && `Closed ${n} unfinished video upload${n === 1 ? '' : 's'}` },
 ];
 
 const timers = [];

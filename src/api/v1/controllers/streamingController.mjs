@@ -2,11 +2,13 @@ import * as titles from '../../../services/streaming/titles.mjs';
 import * as terms from '../../../services/streaming/terms.mjs';
 import * as plans from '../../../services/streaming/plans.mjs';
 import * as settings from '../../../services/streaming/settings.mjs';
+import * as uploads from '../../../services/streaming/uploads.mjs';
+import * as playback from '../../../services/streaming/playback.mjs';
 
 /**
  * Studio › Streaming and the catalogue stream.theartistry360.com and the app
  * read: titles, types, categories, content warnings, plans, the stream
- * site's home page and the ad settings.
+ * site's home page and the ad settings; video uploads and playback.
  */
 
 const created = (res, data) => res.status(201).json({ data });
@@ -55,3 +57,21 @@ export const getStreamSite = async (req, res) => res.json({ data: await settings
 export const updateStreamSite = async (req, res) => res.json({ data: await settings.updateStreamSite(req.body) });
 export const getAds = async (req, res) => res.json({ data: await settings.getAds() });
 export const updateAds = async (req, res) => res.json({ data: await settings.updateAds(req.body) });
+
+/* Uploads (Studio): the file goes straight to Spaces */
+export const startUpload = async (req, res) => created(res, await uploads.startUpload(req.body, req.admin));
+export const signParts = async (req, res) => res.json({ data: await uploads.signParts(req.params.assetId, req.body.partNumbers) });
+export const completeUpload = async (req, res) => res.json({ data: await uploads.completeUpload(req.params.assetId) });
+export const abortUpload = async (req, res) => gone(res, await uploads.abortUpload(req.params.assetId, req.body));
+export const getUpload = async (req, res) => res.json({ data: await uploads.getUpload(req.params.assetId) });
+
+/* Playback */
+export const startPlayback = async (req, res) => res.json({ data: await playback.startPlayback(req.body, { member: req.member }) });
+export const previewPlayback = async (req, res) => res.json({ data: await playback.startPlayback(req.body, { admin: req.admin }) });
+
+// The player may be on another site (stream.theartistry360.com, the app's web view), and Safari's own player loads without CORS.
+const playHeaders = (res, type, cache) => res.set({ 'Content-Type': type, 'Cache-Control': cache, 'Cross-Origin-Resource-Policy': 'cross-origin' });
+const PLAYLIST = 'application/vnd.apple.mpegurl';
+export const masterPlaylist = async (req, res) => playHeaders(res, PLAYLIST, 'private, max-age=300').send(await playback.masterPlaylist(req.params.token));
+export const renditionPlaylist = async (req, res) => playHeaders(res, PLAYLIST, 'private, max-age=300').send(await playback.renditionPlaylist(req.params.token, req.params.rendition));
+export const playbackKey = async (req, res) => playHeaders(res, 'application/octet-stream', 'private, no-store').send(await playback.playbackKey(req.params.token));
