@@ -22,6 +22,7 @@ yarn staff:create --email you@theartistry360.com --name "Your Name"   # the firs
 yarn seed:voting            # the client's demo campaigns, contestants, requests, organisers and payouts (--reset to start over);
                             # demo organisers sign in with the password demo-organiser
 yarn seed:website           # the client's demo talent, monologues, bookings, news, gallery and live classes (--reset to start over)
+yarn seed:streaming         # the client's demo types, categories, warnings, titles, plans, stream site and ads (--reset to start over)
 ```
 
 For voter sign-in, put the Google web client id in `GOOGLE_WEB_CLIENT_ID` here and in `VITE_GOOGLE_CLIENT_ID` in `client/.env.local` (Apple: `APPLE_SERVICES_ID` and `VITE_APPLE_SERVICES_ID`, plus the rest in `.env.example`). Check `GET /api/v1/health` and the docs at `/api-docs`. For payments, put the PesaPal sandbox keys in `.env` (`PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`); on a laptop PesaPal can't reach the IPN, so returning to the campaign page confirms the payment instead. To use the real API from the client, set `VITE_API_MOCKS=false` in `client/.env.local`.
@@ -74,8 +75,8 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | talent | `/talent/bookings` → `bookingRoutes`, `/talent/monologues` → `monologueRoutes`, `/talent` → `talentRoutes` (talent, profiles, a talent's monologues) | `talent/` (talent, monologues, bookings) | 6 ✅ |
 | enquiries | `/enquiries` → `enquiryRoutes` | `enquiries/` | 6 |
 | analytics | `/analytics` → `analyticsRoutes` | `analytics/` | 6 |
-| streaming | `/streaming/titles` → `titleRoutes`, `/streaming/playback` → `playbackRoutes`, `/streaming` → `streamingRoutes` (types, categories, plans, subscribers, ads), `/streaming/uploads` + `/streaming/assets` → `uploadRoutes` | `streaming/` (titles, visibility, playback, releases, video provider) | 2, 6 |
-| stream site | `/stream` → `streamSiteRoutes` (`stream/site`) | `streaming/` | 2 |
+| streaming | `/streaming` → `streamingRoutes`: titles (films, series, seasons, episodes), types, categories, warnings, plans, ads, subscribers ✅; `/streaming/playback` and `/streaming/uploads` + `/streaming/assets` next | `streaming/` (titles, terms, plans, settings) | 2: catalogue ✅ |
+| stream site | `/stream` → `streamSiteRouter` in `streamingRoutes` (`stream/site`) ✅ | `streaming/` (settings) | 2 ✅ |
 | comments | `/streaming/titles/:id/comments` → `commentRoutes` (`mergeParams`) | `comments/` | 3 |
 | library | `/library` → `libraryRoutes` | `library/` | 3 |
 | payments | `/payments` → `paymentRoutes`: vote orders, the payer's status check, PesaPal's IPN, the Studio's voting transactions ✅; streaming orders, store billing, history and subscriptions next | `payments/` (pesapal, orders, revenue) | 4, 4b; voting ✅ |
