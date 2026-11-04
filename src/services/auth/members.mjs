@@ -29,7 +29,12 @@ export const toMemberUser = ({ id, name, email, avatar, lastSignInWith }) => ({
  */
 const memberFor = async (who) => {
     const identity = await prisma.memberIdentity.findUnique({ where: { provider_subject: { provider: who.provider, subject: who.subject } } });
-    if (identity) return prisma.member.findUnique({ where: { id: identity.memberId } });
+    if (identity) {
+        const member = await prisma.member.findUnique({ where: { id: identity.memberId } });
+        if (member) return member;
+        // Its member is gone (deleted by hand, say): drop the stale link and carry on as a first sign-in.
+        await prisma.memberIdentity.deleteMany({ where: { id: identity.id } });
+    }
 
     // Only a verified email may join an existing account, or anyone could claim one by typing it.
     const sameEmail = who.email && who.emailVerified
