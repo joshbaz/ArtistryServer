@@ -44,6 +44,8 @@ const toPayerView = (o) => ({
 });
 
 const changed = (order) => {
+    // Revenue and the activity feed on the Studio's overview.
+    invalidate('admin', ['admin', 'overview']);
     if (order.module === 'streaming') {
         // The member's plan or rental on every device, and Finance's lists.
         invalidateMember(order.memberId);

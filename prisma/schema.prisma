@@ -318,6 +318,20 @@ model PaymentOrder {
 
 // ── Website (Studio › Website and the public pages it feeds) ──
 
+// A message from the public contact form, read in Studio › Overview. Only what the form asks for.
+model Enquiry {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String
+  subject   String   @default("General enquiry")
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([read])
+  @@index([createdAt])
+}
+
 // The editable lists behind Studio dropdowns ("+ Add" saves here). One document, id "lists".
 model OptionLists {
   id                String   @id @map("_id")
