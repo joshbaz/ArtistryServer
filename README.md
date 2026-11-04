@@ -24,6 +24,7 @@ yarn seed:voting            # the client's demo campaigns, contestants, requests
 yarn seed:website           # the client's demo talent, monologues, bookings, news, gallery and live classes (--reset to start over)
 yarn seed:streaming         # the client's demo types, categories, warnings, titles, plans, stream site and ads (--reset to start over)
 yarn spaces:setup           # once: CORS and clean-up rules on the Spaces bucket for video uploads
+yarn images:move            # once: move title pictures saved inside titles to Spaces
 yarn worker                 # the video encode worker on its own (with VIDEO_WORKER=off on the API); needs ffmpeg
 ```
 

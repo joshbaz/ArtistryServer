@@ -43,6 +43,14 @@ router.patch('/titles/:id/episodes/:episodeId', episode, ...editor, validate(sch
 router.delete('/titles/:id/episodes/:episodeId', episode, ...editor, controller.deleteEpisode);
 router.delete('/titles/:id/episodes/:episodeId/video', episode, ...editor, controller.removeEpisodeVideo);
 
+/* Captions: a film's, or an episode's */
+const captions = validate(schema.captionsParam, 'params');
+const episodeCaptions = validate(schema.episodeCaptionsParam, 'params');
+router.put('/titles/:id/captions/:lang', captions, ...editor, validate(schema.captionsBody), controller.setCaptions);
+router.delete('/titles/:id/captions/:lang', captions, ...editor, controller.removeCaptions);
+router.put('/titles/:id/episodes/:episodeId/captions/:lang', episodeCaptions, ...editor, validate(schema.captionsBody), controller.setCaptions);
+router.delete('/titles/:id/episodes/:episodeId/captions/:lang', episodeCaptions, ...editor, controller.removeCaptions);
+
 /* Types, categories, content warnings */
 for (const [path, kind] of [['types', 'type'], ['categories', 'category'], ['advisories', 'advisory']]) {
     router.get(`/${path}`, controller.listTerms(kind));

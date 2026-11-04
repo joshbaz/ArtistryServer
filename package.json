@@ -16,7 +16,8 @@
     "seed:voting": "node scripts/seed-voting.mjs",
     "seed:website": "node scripts/seed-website.mjs",
     "seed:streaming": "node scripts/seed-streaming.mjs",
-    "spaces:setup": "node scripts/spaces-setup.mjs"
+    "spaces:setup": "node scripts/spaces-setup.mjs",
+    "images:move": "node scripts/move-images.mjs"
   },
   "author": "Joshua Kimbareeba",
   "license": "MIT",

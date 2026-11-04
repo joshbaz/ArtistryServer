@@ -7,6 +7,7 @@ import { dropFromHero } from './settings.mjs';
 import { knownAdvisories, missingKeys } from './terms.mjs';
 import { discardAssets, discardEpisodeAssets, discardTitleAssets, later } from './assets.mjs';
 import { ratingCounts } from './library.mjs';
+import { dropFiles, filesOf, storeCaptions, storeImages } from './media.mjs';
 
 /**
  * The streaming library (Studio › Streaming › Library) and the catalogue the
@@ -72,7 +73,7 @@ const publicSeasons = (seasons, now) =>
             title: s.title,
             episodes: s.episodes
                 .filter((e) => ready(e.video) && isOut(e.releaseAt, now))
-                .map((e) => ({ id: e.id, number: e.number, title: e.title, synopsis: e.synopsis, still: e.still, video: publicVideo(e.video), intro: e.intro ?? null, releaseAt: e.releaseAt ?? null })),
+                .map((e) => ({ id: e.id, number: e.number, title: e.title, synopsis: e.synopsis, still: e.still, video: publicVideo(e.video), intro: e.intro ?? null, releaseAt: e.releaseAt ?? null, captions: e.captions ?? [] })),
         }))
         .filter((s) => s.episodes.length);
 
@@ -186,6 +187,7 @@ export const createTitle = async ({ format = 'film', ...input }) => {
     const series = format === 'series';
     const fields = { type: series ? 'series' : 'film', ...input };
     await checkLists(fields);
+    await storeImages(fields, ['poster', 'backdrop']);
     const data = toData({ access: { tier: 'subscription', priceUGX: 0 }, ...fields }, null);
     const row = await withNextNumber('streamTitle', highestTitleNumber, (n) =>
         prisma.streamTitle.create({
@@ -207,17 +209,22 @@ export const updateTitle = async (id, patch) => {
     const current = await prisma.streamTitle.findUnique({ where: { id } });
     if (!current) throw notFound();
     await checkLists(patch);
+    await storeImages(patch, ['poster', 'backdrop']);
     const row = await prisma.streamTitle.update({ where: { id }, data: toData(patch, current) });
     changed(id);
+    // A replaced picture goes from Spaces.
+    dropFiles(['poster', 'backdrop'].filter((f) => current[f] !== row[f]).map((f) => current[f]));
     return toTitle(row);
 };
 
 export const deleteTitle = async (id) => {
+    const row = await prisma.streamTitle.findUnique({ where: { id } });
     const { count } = await prisma.streamTitle.deleteMany({ where: { id } });
     if (!count) return;
     await dropFromHero(id);
     changed(id);
     later(discardTitleAssets(id));
+    if (row) dropFiles(filesOf(row));
 };
 
 /**
@@ -290,6 +297,7 @@ export const removeSeason = (id, number) =>
 /** → { title, episodeId }. No video yet: the upload attaches it. */
 export const addEpisode = async (id, seasonNo, data) => {
     const episodeId = `ep_${crypto.randomBytes(5).toString('hex')}`;
+    await storeImages(data, ['still']);
     const title = await editSeasons(id, (seasons) => {
         const season = findSeason(seasons, seasonNo);
         numberTaken(season, data.number);
@@ -298,19 +306,70 @@ export const addEpisode = async (id, seasonNo, data) => {
     return { title, episodeId };
 };
 
-export const updateEpisode = (id, episodeId, patch) =>
-    editSeasons(id, (seasons) => {
+export const updateEpisode = async (id, episodeId, patch) => {
+    await storeImages(patch, ['still']);
+    let before;
+    const title = await editSeasons(id, (seasons) => {
         const { season, episode } = findEpisode(seasons, episodeId);
         if (patch.number !== undefined) numberTaken(season, patch.number, episodeId);
+        before = episode.still;
         Object.assign(episode, patch);
     });
+    if ('still' in patch && before !== patch.still) dropFiles([before]);
+    return title;
+};
 
 export const deleteEpisode = async (id, episodeId) => {
+    let gone;
     const title = await editSeasons(id, (seasons) => {
-        const { season } = findEpisode(seasons, episodeId);
+        const { season, episode } = findEpisode(seasons, episodeId);
+        gone = [episode.still, ...(episode.captions ?? []).map((c) => c.src)];
         season.episodes = season.episodes.filter((e) => e.id !== episodeId);
     });
     later(discardEpisodeAssets(id, episodeId));
+    dropFiles(gone);
+    return title;
+};
+
+/* Captions: one file per language, on a film or an episode */
+
+/** Adds or replaces the captions in `lang`; the old file goes. */
+export const setCaptions = async ({ titleId, episodeId = null }, lang, { label, text }) => {
+    const src = await storeCaptions(titleId, lang, text);
+    let before = null;
+    const put = (list = []) => {
+        before = list.find((c) => c.lang === lang)?.src ?? null;
+        return [...list.filter((c) => c.lang !== lang), { lang, label, src }].sort((a, b) => a.label.localeCompare(b.label));
+    };
+    let title;
+    try {
+        title = episodeId
+            ? await editSeasons(titleId, (seasons) => {
+                const { episode } = findEpisode(seasons, episodeId);
+                episode.captions = put(episode.captions);
+            })
+            : await edit(titleId, (t) => ({ captions: put(t.captions) }));
+    } catch (error) {
+        dropFiles([src]);
+        throw error;
+    }
+    dropFiles([before]);
+    return title;
+};
+
+export const removeCaptions = async ({ titleId, episodeId = null }, lang) => {
+    let gone = null;
+    const take = (list = []) => {
+        gone = list.find((c) => c.lang === lang)?.src ?? null;
+        return list.filter((c) => c.lang !== lang);
+    };
+    const title = episodeId
+        ? await editSeasons(titleId, (seasons) => {
+            const { episode } = findEpisode(seasons, episodeId);
+            episode.captions = take(episode.captions);
+        })
+        : await edit(titleId, (t) => (t.captions?.some((c) => c.lang === lang) ? { captions: take(t.captions) } : null));
+    dropFiles([gone]);
     return title;
 };
 

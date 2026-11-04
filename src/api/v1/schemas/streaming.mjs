@@ -228,3 +228,16 @@ export const commentBody = z.object({
 export const studioCommentsQuery = z.object({ status: z.enum(['reported', 'hidden', 'all']).default('reported') });
 export const studioCommentParam = z.object({ cid: objectId });
 export const hideCommentBody = z.object({ hidden: z.boolean() });
+
+/* Captions */
+
+// A language code: en, lg (Luganda), sw, fr, pt-BR…
+const lang = z.string().regex(/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/, 'We could not find that.');
+export const captionsParam = z.object({ id: key, lang });
+export const episodeCaptionsParam = z.object({ id: key, episodeId: key, lang });
+
+/** PUT …/captions/:lang: the file's text (.vtt or .srt) and the name viewers pick it by. */
+export const captionsBody = z.object({
+    label: text(40).pipe(z.string().min(1, 'Name the language, e.g. English.')),
+    text: z.string().min(1, 'That file is empty.').max(1_500_000, 'That captions file is too large (1.5 MB at most).'),
+});

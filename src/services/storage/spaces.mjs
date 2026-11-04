@@ -95,6 +95,23 @@ export const putFile = (key, filePath, { contentType, cacheControl, isPublic = f
         ...(isPublic ? { ACL: 'public-read' } : {}),
     }));
 
+/** Writes a small file from memory (an image, a captions file). */
+export const putBuffer = (key, body, { contentType, cacheControl, isPublic = false }) =>
+    s3().send(new PutObjectCommand({ Bucket: Bucket(), Key: key, Body: body, ContentLength: body.length, ContentType: contentType, CacheControl: cacheControl, ...(isPublic ? { ACL: 'public-read' } : {}) }));
+
+/** The key behind one of our public links, or null for anything else. */
+export const keyOf = (url) => {
+    if (typeof url !== 'string' || !isConfigured()) return null;
+    const base = cdnUrl('');
+    return url.startsWith(base) ? url.slice(base.length) : null;
+};
+
+export const deleteKeys = async (keys) => {
+    for (let i = 0; i < keys.length; i += 1000) {
+        await s3().send(new DeleteObjectsCommand({ Bucket: Bucket(), Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+    }
+};
+
 export const getText = async (key) => (await s3().send(new GetObjectCommand({ Bucket: Bucket(), Key: key }))).Body.transformToString();
 
 /** Deletes everything under a prefix, a thousand at a time. */

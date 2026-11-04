@@ -89,3 +89,7 @@ export const reportComment = async (req, res) => res.json({ data: await comments
 export const studioComments = async (req, res) => res.json({ data: await comments.listForStudio(req.query) });
 export const hideComment = async (req, res) => res.json({ data: await comments.setHidden(req.params.cid, req.body.hidden) });
 export const studioDeleteComment = async (req, res) => gone(res, await comments.deleteForStudio(req.params.cid));
+
+/* Captions (Content Manager) */
+export const setCaptions = async (req, res) => res.json({ data: await titles.setCaptions({ titleId: req.params.id, episodeId: req.params.episodeId }, req.params.lang, req.body) });
+export const removeCaptions = async (req, res) => res.json({ data: await titles.removeCaptions({ titleId: req.params.id, episodeId: req.params.episodeId }, req.params.lang) });
