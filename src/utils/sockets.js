@@ -31,7 +31,8 @@ export const setupSocketIO = async (server, app) => {
     io.of('/public');
 
     // The token is checked once, when the socket connects; a bad or expired one is a connect_error and the client reconnects with a fresh one.
-    for (const realm of ['member', 'admin']) {
+    // An organiser has a channel too (the portal listens on it), each in their own room for their campaigns.
+    for (const realm of ['member', 'admin', 'organizer']) {
         const nsp = io.of(`/${realm}`);
         nsp.use((socket, next) => {
             const payload = verifyAccessToken(socket.handshake.auth?.token ?? '');
@@ -40,7 +41,7 @@ export const setupSocketIO = async (server, app) => {
             next();
         });
         nsp.on('connection', (socket) => {
-            if (realm === 'member') socket.join(`member:${socket.data.id}`);
+            if (realm !== 'admin') socket.join(`${realm}:${socket.data.id}`);
         });
     }
 
@@ -55,7 +56,7 @@ const pending = new Map();
  * Tell a namespace's clients that `entity` changed. Call it after the write
  * commits, never before. Identical events within 250 ms go out once, so a bulk
  * edit doesn't fan out a hundred refetches. Does nothing before start-up.
- * @param {'public' | 'member' | 'admin'} namespace
+ * @param {'public' | 'member' | 'admin' | 'organizer'} namespace
  * @param {string[]} entity - e.g. ['site', 'titles']
  * @param {{ id?: string, room?: string }} [options]
  */
