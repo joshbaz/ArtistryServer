@@ -5,7 +5,9 @@
  *   yarn spaces:setup
  *
  * - CORS: the Studio's pages may PUT upload parts straight to the bucket, and
- *   any site may GET the public pieces (hls.js fetches them with CORS).
+ *   any site may GET the public pieces (hls.js fetches them with CORS). The
+ *   Studio's rule allows GET too: Spaces answers a site with the first rule
+ *   naming it, so without GET there the Studio's Preview can't play.
  * - Lifecycle: an upload nobody finished is deleted after 2 days, so stray
  *   parts never sit in the bucket costing money.
  */
@@ -28,7 +30,7 @@ try {
         Bucket,
         CORSConfiguration: {
             CORSRules: [
-                { AllowedMethods: ['PUT'], AllowedOrigins: studioOrigins, AllowedHeaders: ['*'], ExposeHeaders: ['ETag'], MaxAgeSeconds: 3600 },
+                { AllowedMethods: ['PUT', 'GET', 'HEAD'], AllowedOrigins: studioOrigins, AllowedHeaders: ['*'], ExposeHeaders: ['ETag'], MaxAgeSeconds: 3600 },
                 { AllowedMethods: ['GET', 'HEAD'], AllowedOrigins: ['*'], AllowedHeaders: ['*'], MaxAgeSeconds: 86400 },
             ],
         },
@@ -44,6 +46,13 @@ try {
     }));
     console.log('Unfinished uploads are deleted after 2 days.');
 } catch (error) {
+    if (error.name === 'AccessDenied') {
+        // A key limited to one bucket may use its files but not change its settings.
+        console.error('Spaces said no: this key may not change bucket settings (a "Limited Access" key can\'t).');
+        console.error('Either set CORS in the control panel (bucket > Settings > CORS Configurations), or run this once');
+        console.error('with a Full Access key in SPACES_KEY / SPACES_SECRET, then switch back and delete that key.');
+        process.exit(1);
+    }
     console.error('Spaces said no:', error.name, error.message);
     process.exit(1);
 }
