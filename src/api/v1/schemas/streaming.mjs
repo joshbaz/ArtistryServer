@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { imageField, text } from './common.mjs';
+import { imageField, objectId, text } from './common.mjs';
 
 /**
  * Studio › Streaming and what stream.theartistry360.com and the app read.
@@ -205,3 +205,26 @@ export const playbackBody = z.object({ titleId: key, episodeId: key.nullish() })
 
 export const playParam = z.object({ token: z.string().regex(/^[\w-]+\.[\w-]+\.[\w-]+$/, 'This playback link has expired. Press play again.') });
 export const playRenditionParam = playParam.extend({ rendition: z.string().regex(/^\d{3,4}p$/, 'We could not find that.') });
+
+/* Library and comments (members) */
+
+export const libraryTitleParam = z.object({ titleId: key });
+
+/** PUT library/ratings/:titleId */
+export const ratingBody = z.object({ rating: z.enum(['meh', 'like', 'love'], { error: 'Choose Not for me, I like this or Love this.' }) });
+
+const playerSeconds = z.number().min(0).max(48 * 3600);
+/** PUT library/progress: where the player is. */
+export const progressBody = z.object({ titleId: key, episodeId: key.nullish(), seconds: playerSeconds, duration: playerSeconds });
+
+export const commentParam = z.object({ id: key, cid: objectId });
+
+/** POST streaming/titles/:id/comments. Plain text; blank lines squeezed. */
+export const commentBody = z.object({
+    body: text(500).transform((v) => v.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n')).pipe(z.string().min(1, 'Write something first.')),
+    spoiler: z.boolean().default(false),
+});
+
+export const studioCommentsQuery = z.object({ status: z.enum(['reported', 'hidden', 'all']).default('reported') });
+export const studioCommentParam = z.object({ cid: objectId });
+export const hideCommentBody = z.object({ hidden: z.boolean() });

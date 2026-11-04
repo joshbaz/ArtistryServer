@@ -6,6 +6,7 @@ import { withNextNumber } from '../system/counters.mjs';
 import { dropFromHero } from './settings.mjs';
 import { knownAdvisories, missingKeys } from './terms.mjs';
 import { discardAssets, discardEpisodeAssets, discardTitleAssets, later } from './assets.mjs';
+import { ratingCounts } from './library.mjs';
 
 /**
  * The streaming library (Studio › Streaming › Library) and the catalogue the
@@ -108,7 +109,19 @@ export const listPublicTitles = async ({ q } = {}) => {
     if (needle) {
         titles = titles.filter((t) => [t.title, t.synopsis, ...t.cast.map((c) => c.name), ...t.crew.map((c) => c.name)].join(' ').toLowerCase().includes(needle));
     }
-    return titles;
+    return withRatings(titles);
+};
+
+const NO_RATINGS = { meh: 0, like: 0, love: 0 };
+/** Adds what members rated each title. */
+const withRatings = async (titles) => {
+    const counts = await ratingCounts(titles.map((t) => t.id));
+    return titles.map((t) => ({ ...t, ratings: counts[t.id] ?? NO_RATINGS }));
+};
+
+/** One more play, for Trending. Never holds up the player. */
+export const countView = (id) => {
+    prisma.streamTitle.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});
 };
 
 /** One public title; anything else is a 404, so drafts can't be guessed at. */
@@ -116,7 +129,7 @@ export const getPublicTitle = async (id) => {
     const row = await prisma.streamTitle.findUnique({ where: { id } });
     const title = row && toPublicTitle(row);
     if (!title) throw new AppError("That title isn't available.", 404);
-    return title;
+    return (await withRatings([title]))[0];
 };
 
 /* Studio */

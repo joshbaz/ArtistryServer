@@ -93,3 +93,32 @@ export const refreshMember = async (refreshToken) => {
     }
     return { ...session, member: toMemberUser(row) };
 };
+
+/** The member's own name change (PATCH auth/me). */
+export const updateProfile = async (id, { name }) => toMemberUser(await prisma.member.update({ where: { id }, data: { name } }));
+
+/**
+ * Deletes a member's account and what they keep on the stream site: sign-in
+ * links, sessions, plan, rentals, My List, ratings, progress, comments and
+ * likes. Payments stay, unlinked, for the accounts (Finance needs every
+ * receipt); votes already cast stay with the campaign they were counted in.
+ */
+export const deleteAccount = async (id) => {
+    await revokeAllSessions('member', id, { reason: 'account_deleted' });
+    const mine = { where: { memberId: id } };
+    const comments = (await prisma.comment.findMany({ ...mine, select: { id: true } })).map((c) => c.id);
+    await prisma.$transaction([
+        prisma.commentLike.deleteMany({ where: { OR: [{ memberId: id }, { commentId: { in: comments } }] } }),
+        prisma.commentReport.deleteMany({ where: { OR: [{ memberId: id }, { commentId: { in: comments } }] } }),
+        prisma.comment.deleteMany(mine),
+        prisma.watchlistItem.deleteMany(mine),
+        prisma.titleRating.deleteMany(mine),
+        prisma.watchProgress.deleteMany(mine),
+        prisma.episodeProgress.deleteMany(mine),
+        prisma.streamRental.deleteMany(mine),
+        prisma.streamSubscription.deleteMany(mine),
+        prisma.paymentOrder.updateMany({ where: { memberId: id }, data: { memberId: null } }),
+        prisma.memberIdentity.deleteMany(mine),
+        prisma.member.delete({ where: { id } }),
+    ]);
+};

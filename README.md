@@ -77,7 +77,7 @@ Each area keeps the same name in all four places. Mount paths are relative to `/
 | talent | `/talent/bookings` → `bookingRoutes`, `/talent/monologues` → `monologueRoutes`, `/talent` → `talentRoutes` (talent, profiles, a talent's monologues) | `talent/` (talent, monologues, bookings) | 6 ✅ |
 | enquiries | `/enquiries` → `enquiryRoutes` | `enquiries/` | 6 |
 | analytics | `/analytics` → `analyticsRoutes` | `analytics/` | 6 |
-| streaming | `/streaming` → `streamingRoutes`: titles (films, series, seasons, episodes), types, categories, warnings, plans, ads, subscribers ✅; `/streaming/uploads` (straight to Spaces) and `/streaming/playback` + `/streaming/play` (AES-128 HLS) ✅ | `streaming/` (titles, terms, plans, settings, uploads, encoder, playback, assets), `storage/spaces.mjs`, `jobs/videoQueue.mjs` | 2: catalogue ✅, video ✅ |
+| streaming | `/streaming` → `streamingRoutes`: titles (films, series, seasons, episodes), types, categories, warnings, plans, ads, subscribers ✅; `/streaming/uploads` (straight to Spaces) and `/streaming/playback` + `/streaming/play` (AES-128 HLS) ✅; plans and pay-per-view through `/payments/orders` (PesaPal), `/library` (My List, ratings, progress, access), comments and Studio moderation ✅ | `streaming/` (titles, terms, plans, settings, uploads, encoder, playback, assets, access, library, comments), `storage/spaces.mjs`, `jobs/videoQueue.mjs` | 2: catalogue ✅, video ✅ |
 | stream site | `/stream` → `streamSiteRouter` in `streamingRoutes` (`stream/site`) ✅ | `streaming/` (settings) | 2 ✅ |
 | comments | `/streaming/titles/:id/comments` → `commentRoutes` (`mergeParams`) | `comments/` | 3 |
 | library | `/library` → `libraryRoutes` | `library/` | 3 |

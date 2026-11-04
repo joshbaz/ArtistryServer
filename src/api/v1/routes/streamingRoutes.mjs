@@ -1,6 +1,6 @@
 import express from 'express';
 import validate from '../../../middleware/validate.mjs';
-import { allow, optionalMember, requireAdmin } from '../../../middleware/auth.mjs';
+import { allow, optionalMember, requireAdmin, requireMember } from '../../../middleware/auth.mjs';
 import * as schema from '../schemas/streaming.mjs';
 import * as controller from '../controllers/streamingController.mjs';
 
@@ -73,6 +73,17 @@ router.post('/studio/playback', requireAdmin, validate(schema.playbackBody), con
 router.get('/play/:token/master.m3u8', validate(schema.playParam, 'params'), controller.masterPlaylist);
 router.get('/play/:token/key', validate(schema.playParam, 'params'), controller.playbackKey);
 router.get('/play/:token/:rendition/index.m3u8', validate(schema.playRenditionParam, 'params'), controller.renditionPlaylist);
+
+/* Comments */
+const comment = validate(schema.commentParam, 'params');
+router.get('/titles/:id/comments', title, controller.listComments);
+router.post('/titles/:id/comments', title, requireMember, validate(schema.commentBody), controller.postComment);
+router.delete('/titles/:id/comments/:cid', comment, requireMember, controller.deleteComment);
+router.post('/titles/:id/comments/:cid/like', comment, requireMember, controller.likeComment);
+router.post('/titles/:id/comments/:cid/report', comment, requireMember, controller.reportComment);
+router.get('/studio/comments', ...editor, validate(schema.studioCommentsQuery, 'query'), controller.studioComments);
+router.patch('/studio/comments/:cid', validate(schema.studioCommentParam, 'params'), ...editor, validate(schema.hideCommentBody), controller.hideComment);
+router.delete('/studio/comments/:cid', validate(schema.studioCommentParam, 'params'), ...editor, controller.studioDeleteComment);
 
 /* Ads (the app IDs and ad tag are the Studio's to see) */
 router.get('/ads', requireAdmin, controller.getAds);

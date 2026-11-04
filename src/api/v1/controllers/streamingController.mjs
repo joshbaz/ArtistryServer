@@ -4,6 +4,7 @@ import * as plans from '../../../services/streaming/plans.mjs';
 import * as settings from '../../../services/streaming/settings.mjs';
 import * as uploads from '../../../services/streaming/uploads.mjs';
 import * as playback from '../../../services/streaming/playback.mjs';
+import * as comments from '../../../services/streaming/comments.mjs';
 
 /**
  * Studio › Streaming and the catalogue stream.theartistry360.com and the app
@@ -75,3 +76,15 @@ const PLAYLIST = 'application/vnd.apple.mpegurl';
 export const masterPlaylist = async (req, res) => playHeaders(res, PLAYLIST, 'private, max-age=300').send(await playback.masterPlaylist(req.params.token));
 export const renditionPlaylist = async (req, res) => playHeaders(res, PLAYLIST, 'private, max-age=300').send(await playback.renditionPlaylist(req.params.token, req.params.rendition));
 export const playbackKey = async (req, res) => playHeaders(res, 'application/octet-stream', 'private, no-store').send(await playback.playbackKey(req.params.token));
+
+/* Comments: public to read, a member's to write */
+export const listComments = async (req, res) => res.json({ data: await comments.listComments(req.params.id) });
+export const postComment = async (req, res) => created(res, await comments.postComment(req.member, req.params.id, req.body));
+export const deleteComment = async (req, res) => gone(res, await comments.deleteOwnComment(req.member.id, req.params.id, req.params.cid));
+export const likeComment = async (req, res) => res.json({ data: await comments.toggleLike(req.member.id, req.params.id, req.params.cid) });
+export const reportComment = async (req, res) => res.json({ data: await comments.reportComment(req.member.id, req.params.id, req.params.cid) });
+
+/* Comments (Studio, Content Manager) */
+export const studioComments = async (req, res) => res.json({ data: await comments.listForStudio(req.query) });
+export const hideComment = async (req, res) => res.json({ data: await comments.setHidden(req.params.cid, req.body.hidden) });
+export const studioDeleteComment = async (req, res) => gone(res, await comments.deleteForStudio(req.params.cid));

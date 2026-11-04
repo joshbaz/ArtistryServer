@@ -1,4 +1,4 @@
-import { endSessionByToken } from '../../../services/auth/sessions.mjs';
+import { endSessionByToken, revokeAllSessions } from '../../../services/auth/sessions.mjs';
 import * as members from '../../../services/auth/members.mjs';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from '../../../utils/cookies.mjs';
 
@@ -53,4 +53,23 @@ export const logout = async (req, res) => {
 /** GET /auth/me */
 export const me = (req, res) => {
     res.json({ data: members.toMemberUser(req.member) });
+};
+
+/** PATCH /auth/me { name } */
+export const updateMe = async (req, res) => {
+    res.json({ data: await members.updateProfile(req.member.id, req.body) });
+};
+
+/** POST /auth/sessions/revoke-all: every device signs out, this one too. */
+export const revokeAll = async (req, res) => {
+    await revokeAllSessions('member', req.member.id);
+    clearRefreshCookie(res, 'member');
+    res.status(204).end();
+};
+
+/** POST /auth/me/delete { confirm: "DELETE" } */
+export const deleteMe = async (req, res) => {
+    await members.deleteAccount(req.member.id);
+    clearRefreshCookie(res, 'member');
+    res.status(204).end();
 };

@@ -280,15 +280,20 @@ model PaymentOrder {
   id               String    @id @default(auto()) @map("_id") @db.ObjectId
   // Our merchant reference, quoted to PesaPal and to the payer.
   reference        String    @unique
-  // voting (later: streaming)
+  // voting | streaming
   module           String
-  // votes | vip
+  // votes | vip (voting); subscription | renewal | ppv (streaming)
   kind             String
   campaignId       String?   @db.ObjectId
   participantId    String?   @db.ObjectId
   // The signed-in voter: always for a VIP pass; for bought votes only if they happened to be signed in.
   memberId         String?   @db.ObjectId
   votes            Int       @default(0)
+  // Streaming: the plan (and the days it adds) or the title rented, and what the receipt calls it.
+  planId           String?
+  periodDays       Int?
+  titleId          String?
+  itemName         String?
   amountUGX        Int
   currency         String    @default("UGX")
   // pending | completed | failed | reversed
@@ -306,6 +311,7 @@ model PaymentOrder {
   updatedAt        DateTime  @updatedAt
 
   @@index([module, status])
+  @@index([memberId, module])
   @@index([campaignId])
   @@index([trackingId])
 }
@@ -587,4 +593,130 @@ model SettingsDoc {
   id        String   @id @map("_id")
   data      Json
   updatedAt DateTime @updatedAt
+}
+
+// ── Streaming: who may watch, and what members keep ──
+
+// A member's plan. Paid a period at a time through PesaPal: each payment adds the plan's days to
+// currentPeriodEnd, so it's active while that's ahead. Cancelling only stops the reminders to renew.
+model StreamSubscription {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId          String   @unique @db.ObjectId
+  planId            String
+  startedAt         DateTime
+  currentPeriodEnd  DateTime
+  cancelAtPeriodEnd Boolean  @default(false)
+  // As PesaPal reported the last payment: MTN MoMo, Airtel Money, Visa…
+  method            String   @default("")
+  lastOrderId       String?  @db.ObjectId
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([currentPeriodEnd])
+}
+
+// A pay-per-view title a member bought: watchable until expiresAt, which is 24 hours from the
+// first play (30 days to start watching).
+model StreamRental {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  memberId      String    @db.ObjectId
+  titleId       String
+  orderId       String    @unique @db.ObjectId
+  firstPlayedAt DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  @@index([memberId, titleId])
+}
+
+// My List.
+model WatchlistItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  titleId   String
+  createdAt DateTime @default(now())
+
+  @@unique([memberId, titleId])
+  @@index([titleId])
+}
+
+// A member's rating of a title: meh | like | love. Public titles show the counts.
+model TitleRating {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  titleId   String
+  rating    String
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, titleId])
+  @@index([titleId])
+}
+
+// Where a member stopped a title (Continue watching): the latest episode for a series. Gone once finished.
+model WatchProgress {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  titleId   String
+  episodeId String?
+  seconds   Float
+  duration  Float
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, titleId])
+}
+
+// Each episode's own bar in a series' episode list.
+model EpisodeProgress {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  memberId  String   @db.ObjectId
+  titleId   String
+  episodeId String
+  seconds   Float
+  duration  Float
+  done      Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([memberId, episodeId])
+  @@index([memberId, titleId])
+}
+
+// A member's comment on a title. Plain text; hidden once enough members report it, or by the Studio.
+model Comment {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  titleId    String
+  memberId   String   @db.ObjectId
+  // The name at the time; a renamed member's old comments keep theirs.
+  authorName String
+  body       String
+  spoiler    Boolean  @default(false)
+  likes      Int      @default(0)
+  reports    Int      @default(0)
+  hidden     Boolean  @default(false)
+  // reports | studio, when hidden
+  hiddenBy   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([titleId, createdAt])
+  @@index([memberId, createdAt])
+  @@index([reports])
+}
+
+model CommentLike {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  commentId String   @db.ObjectId
+  memberId  String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, memberId])
+  @@index([memberId])
+}
+
+model CommentReport {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  commentId String   @db.ObjectId
+  memberId  String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, memberId])
 }

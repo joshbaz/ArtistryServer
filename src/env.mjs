@@ -21,6 +21,8 @@ const envSchema = z.object({
     MAIL_REPLY_TO: z.string().optional(),
     // Where theartistry360.com runs; links in emails, and PesaPal's return to the site, point here.
     APP_URL: z.url().default("http://localhost:5173"),
+    // Where the stream site runs; PesaPal returns streaming payers here.
+    STREAM_URL: z.url().default("http://localhost:5174"),
     // Where this API is reached from the internet; PesaPal's IPN calls it.
     API_URL: z.url().default("http://localhost:5000"),
     // PesaPal API 3.0 (src/services/payments/pesapal.mjs). Without the key and secret, nobody can buy votes.

@@ -63,8 +63,5 @@ export const deletePlan = async (id) => {
     if (count) changed(id);
 };
 
-/**
- * Who's subscribed. Subscriptions come only from payments (PesaPal and the
- * app stores), which streaming doesn't take yet, so there are none to list.
- */
-export const listSubscribers = async () => [];
+/** Who's subscribed: plans come only from payments (access.mjs). */
+export { listSubscribers } from './access.mjs';

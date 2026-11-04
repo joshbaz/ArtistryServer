@@ -17,6 +17,7 @@ import talentRoutes from './routes/talentRoutes.mjs';
 import academyRoutes from './routes/academyRoutes.mjs';
 import studioOptionsRoutes from './routes/studioOptionsRoutes.mjs';
 import streamingRoutes, { streamSiteRouter } from './routes/streamingRoutes.mjs';
+import libraryRoutes from './routes/libraryRoutes.mjs';
 
 
 const router = express.Router();
@@ -41,6 +42,7 @@ const endpoints = [
     { path: '/studio/options', router: studioOptionsRoutes },
     { path: '/streaming', router: streamingRoutes },
     { path: '/stream', router: streamSiteRouter },
+    { path: '/library', router: libraryRoutes },
 ];
 
 endpoints.forEach((endpoint) => router.use(endpoint.path, requestLogger, endpoint.router));

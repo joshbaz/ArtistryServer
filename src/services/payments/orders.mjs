@@ -2,18 +2,21 @@ import crypto from 'crypto';
 import prisma from '../../utils/db.mjs';
 import { env } from '../../env.mjs';
 import { AppError } from '../../utils/AppError.js';
-import { invalidate, invalidateSite } from '../../utils/sockets.js';
+import { invalidate, invalidateMember, invalidateSite } from '../../utils/sockets.js';
 import { openForVotes } from '../voting/campaigns.mjs';
 import { activePass, grantPass, revokePassFor } from '../voting/vip.mjs';
 import { takeTodaysVote } from '../voting/freeVotes.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
+import { PLAN_DAYS, activeRental, grantPlan, grantRental, hasActivePlan, revokePlan, revokeRental } from '../streaming/access.mjs';
+import { getPublicTitle } from '../streaming/titles.mjs';
 
 /**
  * Checkout orders (10-voting.md, decision 3). An order is made here, paid on
  * PesaPal's page, and moves on from pending only on PesaPal's word: its IPN,
  * or our own status check when the payer comes back to the site. The votes
- * are added in the same transaction that marks the order completed, so they
- * can never be added twice, however many times PesaPal or the payer asks.
+ * (or a streaming plan's days, or a rental) are added in the same transaction
+ * that marks the order completed, so they can never be added twice, however
+ * many times PesaPal or the payer asks.
  */
 
 export const MAX_VOTES = 10_000;
@@ -30,15 +33,24 @@ const newReference = () => `A360-${Date.now().toString(36).toUpperCase()}-${cryp
 /** What the payer's page may know about their own order. */
 const toPayerView = (o) => ({
     reference: o.reference,
+    module: o.module,
     status: o.status,
     kind: o.kind,
     votes: o.votes,
     amountUGX: o.amountUGX,
     campaignId: o.campaignId,
     participantId: o.participantId,
+    ...(o.module === 'streaming' ? { planId: o.planId ?? undefined, titleId: o.titleId ?? undefined, itemName: o.itemName ?? '' } : {}),
 });
 
 const changed = (order) => {
+    if (order.module === 'streaming') {
+        // The member's plan or rental on every device, and Finance's lists.
+        invalidateMember(order.memberId);
+        invalidate('admin', ['admin', 'stream-payments'], { id: order.id });
+        invalidate('admin', ['admin', 'subscribers']);
+        return;
+    }
     invalidateSite('campaigns', { id: order.campaignId });
     invalidate('admin', ['admin', 'campaigns'], { id: order.campaignId });
 };
@@ -73,13 +85,37 @@ export const createVipOrder = async ({ campaignId, participantId, memberId }) =>
     );
 };
 
+/**
+ * Start paying for a streaming plan or a pay-per-view title, for the
+ * signed-in member. Paying for a plan while one is running adds its days on
+ * top (a renewal); a title already rented and still watchable can't be bought again.
+ * @returns {Promise<{ reference: string, redirectUrl: string }>}
+ */
+export const createStreamOrder = async ({ kind, planId, titleId, memberId }) => {
+    const back = { module: 'streaming', callbackUrl: `${env.STREAM_URL}/payment/return` };
+    if (kind === 'subscription') {
+        const plan = await prisma.streamPlan.findFirst({ where: { id: planId, active: true } });
+        if (!plan) throw new AppError("That plan isn't available any more.", 404);
+        const renewal = await hasActivePlan(memberId);
+        return checkout(
+            { kind: renewal ? 'renewal' : 'subscription', planId: plan.id, periodDays: PLAN_DAYS[plan.interval] ?? 30, memberId, amountUGX: plan.priceUGX, itemName: `${plan.name} plan` },
+            `${plan.name} plan, The Artistry360 Stream`,
+            back,
+        );
+    }
+    const title = await getPublicTitle(titleId);
+    if (title.access.tier !== 'ppv') throw new AppError(title.access.tier === 'free' ? 'This title is free to watch.' : 'This title comes with a plan, not on its own.', 409, { code: 'not_for_sale' });
+    if (await activeRental(memberId, titleId)) throw new AppError('You already have this title. Press play to watch it.', 409, { code: 'already_rented' });
+    return checkout({ kind: 'ppv', titleId, memberId, amountUGX: title.access.priceUGX, itemName: title.title }, `Watch: ${title.title}, The Artistry360 Stream`, back);
+};
+
 /** Record the order, then hand it to PesaPal; the payer goes to the page it answers with. */
-const checkout = async (fields, description) => {
+const checkout = async (fields, description, { module = 'voting', callbackUrl } = {}) => {
     const order = await prisma.paymentOrder.create({
         data: {
             ...fields,
             reference: newReference(),
-            module: 'voting',
+            module,
             // Written out: on MongoDB, Prisma's `field: null` filter doesn't match a missing field.
             completedAt: null,
         },
@@ -89,10 +125,11 @@ const checkout = async (fields, description) => {
             reference: order.reference,
             amountUGX: order.amountUGX,
             description,
-            // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…. Paid in the site's PesaPal
-            // window, this small page tells the window it's done; paid in a full tab, it goes on to
-            // the campaign page, which checks the order from those.
-            callbackUrl: `${env.APP_URL}/payment/return/${order.campaignId}`,
+            // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…. For voting, paid in the site's
+            // PesaPal window, this small page tells the window it's done; paid in a full tab, it goes on
+            // to the campaign page, which checks the order from those. The stream site's return page
+            // checks the order the same way.
+            callbackUrl: callbackUrl ?? `${env.APP_URL}/payment/return/${order.campaignId}`,
         });
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { trackingId } });
         return { reference: order.reference, redirectUrl };
@@ -129,6 +166,10 @@ const settle = async (order) => {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { increment: order.votes } } });
             }
             if (count && order.kind === 'vip' && order.memberId) await grantPass(tx, order, order.votes);
+            if (count && order.module === 'streaming') {
+                if (order.titleId) await grantRental(tx, order);
+                else await grantPlan(tx, order, paid.method);
+            }
             return count;
         });
         if (done) {
@@ -147,6 +188,10 @@ const settle = async (order) => {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { decrement: order.votes } } });
             }
             if (count && order.status === 'completed' && order.kind === 'vip') await revokePassFor(tx, order.id);
+            if (count && order.status === 'completed' && order.module === 'streaming') {
+                if (order.titleId) await revokeRental(tx, order);
+                else await revokePlan(tx, order);
+            }
             return count;
         });
         if (undone) changed(order);
@@ -235,3 +280,47 @@ export const toVoteOrderRow = (titles, names) => (o) => ({
     campaignTitle: titles.get(o.campaignId) ?? 'Deleted campaign',
     contestantName: o.participantId ? names.get(o.participantId) ?? 'Removed contestant' : '',
 });
+
+/* Streaming */
+
+const streamItemName = (o) => o.itemName || (o.titleId ? 'A title' : 'A plan');
+
+/** Studio › Streaming › Transactions: every streaming payment, newest first, with who paid (their account email). */
+export const listStreamingOrders = async () => {
+    const orders = await prisma.paymentOrder.findMany({ where: { module: 'streaming' }, orderBy: { createdAt: 'desc' }, take: 2000 });
+    const members = await prisma.member.findMany({ where: { id: { in: [...new Set(orders.map((o) => o.memberId).filter(Boolean))] } }, select: { id: true, name: true, email: true } });
+    const byId = new Map(members.map((m) => [m.id, m]));
+    return orders.map((o) => ({
+        id: o.id,
+        reference: o.reference,
+        kind: o.kind,
+        payerName: byId.get(o.memberId)?.name || (o.memberId ? 'Member' : 'Deleted account'),
+        payerEmail: byId.get(o.memberId)?.email ?? '',
+        planId: o.planId ?? undefined,
+        titleId: o.titleId ?? undefined,
+        amountUGX: o.amountUGX,
+        method: o.method || 'PesaPal',
+        // A refunded payment counts as not paid in the Studio's totals.
+        status: o.status === 'reversed' ? 'failed' : o.status,
+        createdAt: o.createdAt.toISOString(),
+        itemName: streamItemName(o),
+    }));
+};
+
+/** A member's own streaming receipts (Account › Payments): paid and refunded, newest first. */
+export const listMemberPayments = async (memberId) => {
+    const orders = await prisma.paymentOrder.findMany({ where: { memberId, module: 'streaming', status: { in: ['completed', 'reversed'] } }, orderBy: { createdAt: 'desc' }, take: 500 });
+    return orders.map((o) => ({
+        id: o.id,
+        kind: o.titleId ? 'purchase' : 'subscription',
+        planId: o.planId ?? undefined,
+        titleId: o.titleId ?? undefined,
+        description: o.titleId ? `Watch: ${streamItemName(o)} (24 hours)` : `${streamItemName(o)}${o.kind === 'renewal' ? ' (renewal)' : ''}`,
+        amountUGX: o.amountUGX,
+        method: o.method || 'PesaPal',
+        // Ours, the one the Studio's Transactions list shows, for support queries.
+        reference: o.reference,
+        status: o.status === 'reversed' ? 'refunded' : 'paid',
+        paidAt: (o.completedAt ?? o.createdAt).toISOString(),
+    }));
+};

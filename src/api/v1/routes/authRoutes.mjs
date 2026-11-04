@@ -13,5 +13,8 @@ router.post('/apple', knownOrigin, validate(schema.idTokenBody), controller.appl
 router.post('/refresh', knownOrigin, validate(schema.refreshBody), controller.refresh);
 router.post('/logout', knownOrigin, validate(schema.refreshBody), controller.logout);
 router.get('/me', requireMember, controller.me);
+router.patch('/me', requireMember, validate(schema.profileBody), controller.updateMe);
+router.post('/me/delete', knownOrigin, requireMember, validate(schema.deleteAccountBody), controller.deleteMe);
+router.post('/sessions/revoke-all', knownOrigin, requireMember, controller.revokeAll);
 
 export default router;

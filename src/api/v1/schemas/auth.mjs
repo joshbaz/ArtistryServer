@@ -10,3 +10,9 @@ export const idTokenBody = z.object({
 
 /** POST /auth/refresh, /auth/logout from the app, which holds its refresh token itself. */
 export const refreshBody = z.object({ refreshToken: z.string().max(200).optional() }).optional();
+
+/** PATCH /auth/me: the name other members see on comments. */
+export const profileBody = z.object({ name: text(60).pipe(z.string().min(1, 'Enter your name.')) });
+
+/** POST /auth/me/delete: typed out, so it never happens by accident. */
+export const deleteAccountBody = z.object({ confirm: z.string().trim().toUpperCase().refine((v) => v === 'DELETE', 'Type DELETE to confirm.') });

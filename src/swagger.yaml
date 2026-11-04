@@ -1007,6 +1007,24 @@ paths:
       summary: 'The HLS master playlist behind a playback link; {size}/index.m3u8 lists its pieces (on the Spaces CDN) and /key is the AES-128 key'
       parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: application/vnd.apple.mpegurl }, '403': { description: playback_expired } }
+  /library:
+    get:
+      tags: [Streaming]
+      summary: 'The signed-in member''s library { watchlist, ratings, progress, episodes }. Also GET /library/access (plan and rentals), /watchlist, /ratings, /progress, /episode-progress, /comment-likes; PUT/DELETE /watchlist/{titleId} and /ratings/{titleId} { rating }; PUT /progress { titleId, episodeId?, seconds, duration }; DELETE /progress[/{titleId}]'
+      security: [{ bearer: [] }]
+      responses: { '200': { description: '{ watchlist[], ratings{}, progress{}, episodes{} }' }, '401': { description: Sign in } }
+  /streaming/titles/{id}/comments:
+    get:
+      tags: [Streaming]
+      summary: 'A title''s visible comments, newest first. POST { body, spoiler } (member; 500 characters, 5 a minute); POST /{cid}/like (toggles), /{cid}/report (three hide it); DELETE /{cid} (own). Studio: GET /streaming/studio/comments?status=, PATCH/DELETE /streaming/studio/comments/{cid} (Content Manager)'
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: '[{ id, author{ id, name }, body, spoiler, likes, createdAt }]' } }
+  /payments/history:
+    get:
+      tags: [Payments]
+      summary: 'The signed-in member''s streaming receipts, paid and refunded. POST /payments/subscription/cancel and /resume say whether a plan is meant to renew'
+      security: [{ bearer: [] }]
+      responses: { '200': { description: '[{ id, kind, planId?, titleId?, description, amountUGX, method, reference, status, paidAt }]' } }
   /stream/site:
     get:
       tags: [Streaming]

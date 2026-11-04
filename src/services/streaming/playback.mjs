@@ -4,7 +4,8 @@ import { env } from '../../env.mjs';
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import * as spaces from '../storage/spaces.mjs';
-import { findWatchable } from './titles.mjs';
+import { countView, findWatchable } from './titles.mjs';
+import { mayWatch } from './access.mjs';
 import { assetPrefix } from './assets.mjs';
 
 /**
@@ -17,9 +18,8 @@ import { assetPrefix } from './assets.mjs';
  *
  * The player follows the playlists' relative links, so the token rides along
  * by itself. The pieces come from the CDN; only the small playlists and the
- * key come from here. Anyone may watch a free title. Subscription and
- * pay-per-view titles wait for payments (step 3): until then only the Studio
- * plays them.
+ * key come from here. Anyone may watch a free title; a subscription title
+ * needs a paid-up plan, a pay-per-view one a rental (access.mjs).
  */
 
 const LINK_HOURS = 6;
@@ -32,12 +32,12 @@ const notReady = () => new AppError("This video isn't ready to play yet.", 409, 
 /**
  * Who may watch what: 401 to sign in first, then 403 `locked` with the way
  * in (`details.reason`: subscribe, or rent for `priceUGX`), as agreed with
- * the stream site and the app. Payments (step 3) will open subscription and
- * pay-per-view titles to those who've paid.
+ * the stream site and the app.
  */
-const checkAccess = (title, member) => {
+const checkAccess = async (title, member) => {
     if (title.accessTier === 'free') return;
     if (!member) throw new AppError('Sign in to watch this.', 401);
+    if (await mayWatch(member.id, title)) return;
     if (title.accessTier === 'ppv') throw new AppError(`Rent this title to watch it (UGX ${title.priceUGX.toLocaleString('en-UG')}).`, 403, { code: 'locked', details: { reason: 'rent', priceUGX: title.priceUGX } });
     throw new AppError('Subscribe to watch this.', 403, { code: 'locked', details: { reason: 'subscribe' } });
 };
@@ -45,9 +45,11 @@ const checkAccess = (title, member) => {
 /** → { url, expiresAt, duration, intro } for a film (titleId) or an episode (titleId, episodeId). */
 export const startPlayback = async (target, { member = null, admin = null } = {}) => {
     const { title, video, intro } = await findWatchable(target, { studio: Boolean(admin) });
-    if (!admin) checkAccess(title, member);
+    if (!admin) await checkAccess(title, member);
     const asset = await prisma.videoAsset.findUnique({ where: { id: video.assetId } });
     if (!asset || asset.status !== 'ready') throw notReady();
+    // Trending counts plays by viewers, not the Studio's checks.
+    if (!admin) countView(title.id);
     const expiresAt = new Date(Date.now() + LINK_HOURS * 3600 * 1000);
     const token = await new SignJWT({ a: asset.id })
         .setProtectedHeader({ alg: 'HS256' })
