@@ -606,6 +606,9 @@ model StreamSubscription {
   startedAt         DateTime
   currentPeriodEnd  DateTime
   cancelAtPeriodEnd Boolean  @default(false)
+  // The period end each reminder email went out for, so each goes once per period.
+  reminderSentFor   DateTime?
+  endedNoticeFor    DateTime?
   // As PesaPal reported the last payment: MTN MoMo, Airtel Money, Visa…
   method            String   @default("")
   lastOrderId       String?  @db.ObjectId
