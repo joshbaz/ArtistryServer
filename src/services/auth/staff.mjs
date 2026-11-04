@@ -2,7 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { STAFF_ROLES } from '../../utils/permissions.mjs';
 import { hashPassword, MIN_PASSWORD_LENGTH, verifyPassword } from './passwords.mjs';
-import { refreshSession, revokeAllSessions, startSession } from './sessions.mjs';
+import { deviceName, refreshSession, revokeAllSessions, startSession } from './sessions.mjs';
 
 /**
  * Studio accounts (the admin realm): signing in, staying signed in, and
@@ -110,12 +110,6 @@ export const changeOwnPassword = async (id, { currentPassword, newPassword }, { 
 };
 
 /** "Chrome on macOS" from a browser's user agent, as near as it can tell. */
-export const deviceName = (ua = '') => {
-    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
-    const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
-    return browser && os ? `${browser} on ${os}` : browser ?? os ?? 'Unknown device';
-};
-
 /** Your open sessions, this device first, then most recently used. */
 export const listOwnSessions = async (id, currentSessionId) => {
     const now = new Date();

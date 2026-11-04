@@ -1,7 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { verifyIdToken } from './providers.mjs';
-import { refreshSession, revokeAllSessions, startSession } from './sessions.mjs';
+import { deviceName, refreshSession, revokeAllSessions, startSession } from './sessions.mjs';
 
 /**
  * Member accounts (member realm). For now a member is a voter who signed in
@@ -130,3 +130,29 @@ export const deleteAccount = async (id) => {
 
 /** The ways a member signs in: google, apple. */
 export const signInMethods = async (id) => [...new Set((await prisma.memberIdentity.findMany({ where: { memberId: id }, select: { provider: true } })).map((i) => i.provider))];
+
+/**
+ * Where you're signed in, this device first, in the shape the app's Devices
+ * screen reads. The app says which phone it runs on in its User-Agent
+ * ("Artistry360App (iOS)").
+ */
+export const listSessions = async (id, currentSessionId) => {
+    const rows = await prisma.session.findMany({ where: { realm: 'member', subjectId: id, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: 'desc' } });
+    const app = (ua) => (/Android/.test(ua) ? 'The app on Android' : /iOS|iPhone|iPad/.test(ua) ? 'The app on iOS' : 'The app');
+    return rows
+        .map((s) => ({
+            id: s.id,
+            name: s.client === 'mobile' ? app(s.userAgent ?? '') : deviceName(s.userAgent ?? ''),
+            kind: s.client === 'mobile' ? 'phone' : 'browser',
+            lastActive: s.lastSeenAt.toISOString(),
+            current: s.id === currentSessionId,
+        }))
+        .sort((a, b) => b.current - a.current);
+};
+
+/** Sign one of your other devices out. */
+export const endSession = async (id, sessionId, currentSessionId) => {
+    if (sessionId === currentSessionId) throw new AppError('Use Sign out to end this session.', 409);
+    const { count } = await prisma.session.updateMany({ where: { id: sessionId, realm: 'member', subjectId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'signed_out' } });
+    if (!count) throw new AppError('That device is already signed out.', 404);
+};

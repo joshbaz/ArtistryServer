@@ -65,6 +65,15 @@ export const updateMe = async (req, res) => {
     res.json({ data: await members.updateProfile(req.member.id, req.body) });
 };
 
+/** GET /auth/sessions: where this member is signed in. */
+export const listSessions = async (req, res) => res.json({ data: await members.listSessions(req.member.id, req.sessionId) });
+
+/** DELETE /auth/sessions/:sessionId: sign one other device out. */
+export const endSession = async (req, res) => {
+    await members.endSession(req.member.id, req.params.sessionId, req.sessionId);
+    res.status(204).end();
+};
+
 /** POST /auth/sessions/revoke-all: every device signs out, this one too. */
 export const revokeAll = async (req, res) => {
     await revokeAllSessions('member', req.member.id);

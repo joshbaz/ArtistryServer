@@ -36,6 +36,13 @@ const issue = (session, refreshToken) => ({
     expiresAt: session.expiresAt,
 });
 
+/** "Chrome on macOS", from a browser's User-Agent. */
+export const deviceName = (ua = '') => {
+    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
+    const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
+    return browser && os ? `${browser} on ${os}` : browser ?? os ?? 'Unknown device';
+};
+
 /**
  * Open a session for someone who just signed in.
  * @param {{ realm: 'member' | 'admin' | 'organizer', subjectId: string, client?: 'web' | 'mobile', userAgent?: string }} who

@@ -16,3 +16,6 @@ export const profileBody = z.object({ name: text(60).pipe(z.string().min(1, 'Ent
 
 /** POST /auth/me/delete: typed out, so it never happens by accident. */
 export const deleteAccountBody = z.object({ confirm: z.string().trim().toUpperCase().refine((v) => v === 'DELETE', 'Type DELETE to confirm.') });
+
+/** DELETE /auth/sessions/:sessionId */
+export const sessionParam = z.object({ sessionId: z.string().regex(/^[a-f0-9]{24}$/i, 'We could not find that.') });
