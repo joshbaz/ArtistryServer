@@ -324,3 +324,42 @@ export const listMemberPayments = async (memberId) => {
         paidAt: (o.completedAt ?? o.createdAt).toISOString(),
     }));
 };
+
+/**
+ * The Studio's Check (Transactions, Finance): ask PesaPal about one payment
+ * now, whatever its state. Paid: it completes, adding its votes, plan or
+ * rental, in the same guarded transaction as the IPN. A checkout closed after
+ * a day unpaid is opened again for the check, in case the money came late,
+ * and closed again if PesaPal still says unpaid. Refunds are picked up too.
+ * → { reference, status, changed, message }
+ */
+export const checkForStudio = async (reference) => {
+    const before = await prisma.paymentOrder.findUnique({ where: { reference } });
+    if (!before) throw notFound();
+    if (!before.trackingId) throw new AppError("This payment never reached PesaPal, so there's nothing to check.", 409, { code: 'not_at_pesapal' });
+
+    const expired = before.status === 'failed' && before.statusNote === 'expired';
+    if (expired) await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'failed' }, data: { status: 'pending', statusNote: null } });
+
+    let after;
+    try {
+        after = await settle(await prisma.paymentOrder.findUnique({ where: { id: before.id } }));
+    } catch (error) {
+        if (expired) await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'pending' }, data: { status: 'failed', statusNote: 'expired' } });
+        console.error(`Check of ${reference} failed:`, error.message);
+        throw new AppError("We couldn't reach PesaPal just now. Try again in a moment.", 502, { code: 'provider_unreachable' });
+    }
+    if (expired && after.status === 'pending') {
+        await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'pending' }, data: { status: 'failed', statusNote: 'expired' } });
+        after = await prisma.paymentOrder.findUnique({ where: { id: before.id } });
+    }
+
+    const what = after.module === 'streaming' ? (after.titleId ? 'The rental is on.' : "The plan's time was added.") : `${after.votes.toLocaleString('en')} vote${after.votes === 1 ? '' : 's'} added.`;
+    const message = {
+        completed: before.status === 'completed' ? 'Already paid. Nothing to add.' : `PesaPal confirms it's paid. ${what}`,
+        pending: "PesaPal hasn't received this payment yet.",
+        failed: before.status === 'failed' ? 'PesaPal still says this payment was not made.' : "PesaPal says this payment wasn't made.",
+        reversed: 'PesaPal says this payment was refunded; what it added was taken back.',
+    }[after.status];
+    return { reference, status: after.status, changed: after.status !== before.status, message };
+};

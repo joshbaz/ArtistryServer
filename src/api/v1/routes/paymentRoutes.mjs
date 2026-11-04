@@ -14,6 +14,7 @@ const router = express.Router();
 router.post('/orders', optionalMember, validate(schema.createOrderBody), controller.createOrder);
 router.get('/orders', requireAdmin, allow('finance'), validate(schema.listOrdersQuery, 'query'), controller.listOrders);
 router.get('/orders/:reference', validate(schema.referenceParam, 'params'), controller.getOrder);
+router.post('/orders/:reference/check', validate(schema.referenceParam, 'params'), requireAdmin, allow('finance'), controller.checkOrder);
 router.get('/pesapal/ipn', controller.ipn);
 router.post('/pesapal/ipn', controller.ipn);
 router.get('/history', requireMember, controller.history);

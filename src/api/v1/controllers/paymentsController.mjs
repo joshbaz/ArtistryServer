@@ -47,3 +47,6 @@ export const ipn = async (req, res) => {
     const reply = await orders.handleIpn(parsed.success ? parsed.data : {});
     res.status(reply.status === 200 ? 200 : 500).json(reply);
 };
+
+/** POST /payments/orders/:reference/check (Studio, Finance): ask PesaPal now and apply its answer. */
+export const checkOrder = async (req, res) => res.json({ data: await orders.checkForStudio(req.params.reference) });
