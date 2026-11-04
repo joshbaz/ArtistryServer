@@ -7,6 +7,8 @@ import { openForVotes } from '../voting/campaigns.mjs';
 import { activePass, grantPass, revokePassFor } from '../voting/vip.mjs';
 import { takeTodaysVote } from '../voting/freeVotes.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
+import { orderCharges, totalOf } from './charges.mjs';
+import { afterEarning } from './maintenance.mjs';
 import { PLAN_DAYS, activeRental, grantPlan, grantRental, hasActivePlan, revokePlan, revokeRental } from '../streaming/access.mjs';
 import { getPublicTitle } from '../streaming/titles.mjs';
 
@@ -38,14 +40,17 @@ const toPayerView = (o) => ({
     kind: o.kind,
     votes: o.votes,
     amountUGX: o.amountUGX,
+    chargesUGX: totalOf(o) - o.amountUGX,
+    totalUGX: totalOf(o),
     campaignId: o.campaignId,
     participantId: o.participantId,
     ...(o.module === 'streaming' ? { planId: o.planId ?? undefined, titleId: o.titleId ?? undefined, itemName: o.itemName ?? '' } : {}),
 });
 
 const changed = (order) => {
-    // Revenue and the activity feed on the Studio's overview.
+    // Revenue and the activity feed on the Studio's overview, and the maintenance balance.
     invalidate('admin', ['admin', 'overview']);
+    invalidate('admin', ['admin', 'maintenance']);
     if (order.module === 'streaming') {
         // The member's plan or rental on every device, and Finance's lists.
         invalidateMember(order.memberId);
@@ -111,11 +116,15 @@ export const createStreamOrder = async ({ kind, planId, titleId, memberId }) => 
     return checkout({ kind: 'ppv', titleId, memberId, amountUGX: title.access.priceUGX, itemName: title.title }, `Watch: ${title.title}, The Artistry360 Stream`, back);
 };
 
-/** Record the order, then hand it to PesaPal; the payer goes to the page it answers with. */
+/**
+ * Record the order with its charges on top of the price, then hand it to
+ * PesaPal for the total; the payer goes to the page it answers with.
+ */
 const checkout = async (fields, description, { module = 'voting', callbackUrl } = {}) => {
     const order = await prisma.paymentOrder.create({
         data: {
             ...fields,
+            ...(await orderCharges(fields.amountUGX)),
             reference: newReference(),
             module,
             // Written out: on MongoDB, Prisma's `field: null` filter doesn't match a missing field.
@@ -125,7 +134,7 @@ const checkout = async (fields, description, { module = 'voting', callbackUrl } 
     try {
         const { trackingId, redirectUrl } = await submitOrder({
             reference: order.reference,
-            amountUGX: order.amountUGX,
+            amountUGX: totalOf(order),
             description,
             // PesaPal adds ?OrderTrackingId=…&OrderMerchantReference=…. For voting, paid in the site's
             // PesaPal window, this small page tells the window it's done; paid in a full tab, it goes on
@@ -154,7 +163,7 @@ const settle = async (order) => {
 
     if (paid.state === 'completed' && order.status === 'pending') {
         // Paid less, in another currency, or for another order: never add votes for it.
-        if (paid.amount < order.amountUGX || paid.currency !== 'UGX' || paid.reference !== order.reference) {
+        if (paid.amount < totalOf(order) || paid.currency !== 'UGX' || paid.reference !== order.reference) {
             console.error(`Order ${order.reference}: PesaPal reports ${paid.amount} ${paid.currency} for ${paid.reference}; not counted`);
             await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', statusNote: 'amount_mismatch', method: paid.method } });
             return prisma.paymentOrder.findUnique({ where: { id: order.id } });
@@ -178,6 +187,8 @@ const settle = async (order) => {
             // The VIP votes just added are today's: the voter's next one opens in 24 hours.
             if (order.kind === 'vip' && order.memberId) await takeTodaysVote(order.campaignId, order.memberId, now).catch(() => {});
             changed(order);
+            // Not awaited: an email about the balance never holds up PesaPal's IPN.
+            afterEarning(order.maintenanceUGX ?? 0);
         }
     } else if (paid.state === 'failed' && order.status === 'pending') {
         await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', method: paid.method } });
@@ -264,7 +275,8 @@ export const listVotingOrders = async () => {
     ]);
     const titles = new Map(campaigns.map((c) => [c.id, c.title]));
     const names = new Map(contestants.map((c) => [c.id, c.fullName]));
-    return orders.map(toVoteOrderRow(titles, names));
+    // The Studio also sees what was paid on top; organisers (toVoteOrderRow alone) see the price.
+    return orders.map((o) => ({ ...toVoteOrderRow(titles, names)(o), chargesUGX: totalOf(o) - o.amountUGX, totalUGX: totalOf(o) }));
 };
 
 /** An order as the Studio's and the organiser's payment lists show it. */
@@ -301,6 +313,8 @@ export const listStreamingOrders = async () => {
         planId: o.planId ?? undefined,
         titleId: o.titleId ?? undefined,
         amountUGX: o.amountUGX,
+        chargesUGX: totalOf(o) - o.amountUGX,
+        totalUGX: totalOf(o),
         method: o.method || 'PesaPal',
         // A refunded payment counts as not paid in the Studio's totals.
         status: o.status === 'reversed' ? 'failed' : o.status,
@@ -318,7 +332,10 @@ export const listMemberPayments = async (memberId) => {
         planId: o.planId ?? undefined,
         titleId: o.titleId ?? undefined,
         description: o.titleId ? `Watch: ${streamItemName(o)} (24 hours)` : `${streamItemName(o)}${o.kind === 'renewal' ? ' (renewal)' : ''}`,
+        // The receipt: the price, the charges on top, and what was paid.
         amountUGX: o.amountUGX,
+        chargesUGX: totalOf(o) - o.amountUGX,
+        totalUGX: totalOf(o),
         method: o.method || 'PesaPal',
         // Ours, the one the Studio's Transactions list shows, for support queries.
         reference: o.reference,

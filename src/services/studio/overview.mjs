@@ -1,5 +1,6 @@
 import prisma from '../../utils/db.mjs';
 import { roleAllows } from '../../utils/permissions.mjs';
+import { payoutDue } from '../payments/maintenance.mjs';
 
 /**
  * The figures behind Studio › Overview that only the server can know: money
@@ -124,11 +125,13 @@ const recentActivity = async (now, { money }) => {
 export const getOverview = async (admin) => {
     const now = new Date();
     const money = roleAllows(admin.role, ['finance']);
-    const [revenue, members, payoutsDue, recent] = await Promise.all([
+    const [revenue, members, payoutsDue, maintenanceDue, recent] = await Promise.all([
         money ? revenueByMonth(now) : null,
         memberCounts(now),
         prisma.payoutRequest.count({ where: { status: 'requested' } }),
+        // Whether the developers' maintenance balance has reached its payout amount (Finance only).
+        money ? payoutDue() : false,
         recentActivity(now, { money }),
     ]);
-    return { revenue, members, queues: { payoutsDue }, recentActivity: recent };
+    return { revenue, members, queues: { payoutsDue, maintenanceDue }, recentActivity: recent };
 };

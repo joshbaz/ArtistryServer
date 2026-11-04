@@ -22,6 +22,7 @@ export const EVENTS = {
     booking: { label: 'Someone asks to book talent', roles: ALL_ROLES, defaultFor: ['content-manager'] },
     'organiser-request': { label: 'An organiser asks to run a campaign', roles: ALL_ROLES, defaultFor: [] },
     'payout-request': { label: 'An organiser requests a payout', roles: ['finance'], defaultFor: ['finance'] },
+    'maintenance-due': { label: 'The system maintenance balance reaches its payout amount', roles: ['finance'], defaultFor: ['finance'] },
 };
 
 /** The emails a role may choose. A Super Admin may choose them all. */

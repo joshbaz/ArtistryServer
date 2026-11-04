@@ -33,3 +33,19 @@ export const ipnFields = z.object({
     OrderMerchantReference: z.string().max(100).optional(),
     OrderNotificationType: z.string().max(40).optional(),
 });
+
+/** PUT payments/maintenance/rates (Super Admin) */
+export const ratesBody = z.object({
+    pesapalPercent: z.number().min(0).max(20),
+    maintenancePercent: z.number().min(0).max(50),
+    payoutThresholdUGX: z.number().int().min(0).max(1_000_000_000),
+});
+
+/** POST payments/maintenance/payouts: what was sent by hand, and its reference. No account numbers. */
+export const maintenancePayoutBody = z.object({
+    amountUGX: z.number().int().min(1, 'Enter the amount sent.'),
+    method: z.enum(['MTN MoMo', 'Airtel Money', 'Bank transfer'], { error: 'Choose how it was sent.' }),
+    reference: z.string().trim().min(3, 'Enter the transaction reference.').max(80),
+    note: z.string().trim().max(300).optional(),
+    paidAt: z.iso.date().optional(),
+});

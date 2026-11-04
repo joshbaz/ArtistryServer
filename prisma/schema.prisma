@@ -285,43 +285,72 @@ model PayoutRequest {
 // ── Payments ── One order per checkout: bought votes now, VIP and streaming later.
 // Only PesaPal's word (the IPN, or our own status check when the payer comes back) moves it on from pending.
 model PaymentOrder {
-  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
   // Our merchant reference, quoted to PesaPal and to the payer.
-  reference        String    @unique
+  reference          String    @unique
   // voting | streaming
-  module           String
+  module             String
   // votes | vip (voting); subscription | renewal | ppv (streaming)
-  kind             String
-  campaignId       String?   @db.ObjectId
-  participantId    String?   @db.ObjectId
+  kind               String
+  campaignId         String?   @db.ObjectId
+  participantId      String?   @db.ObjectId
   // The signed-in voter: always for a VIP pass; for bought votes only if they happened to be signed in.
-  memberId         String?   @db.ObjectId
-  votes            Int       @default(0)
+  memberId           String?   @db.ObjectId
+  votes              Int       @default(0)
   // Streaming: the plan (and the days it adds) or the title rented, and what the receipt calls it.
-  planId           String?
-  periodDays       Int?
-  titleId          String?
-  itemName         String?
-  amountUGX        Int
-  currency         String    @default("UGX")
+  planId             String?
+  periodDays         Int?
+  titleId            String?
+  itemName           String?
+  // The price: what the votes, pass, plan or title cost. The client's money; revenue and organiser
+  // shares count this.
+  amountUGX          Int
+  // Charges added on top (services/payments/charges.mjs), fixed when the order is made: system
+  // maintenance, PesaPal's fee, and what PesaPal is asked to collect. Missing on orders from before.
+  maintenanceUGX     Int?
+  pesapalFeeUGX      Int?
+  totalUGX           Int?
+  // The rates they were worked out at, so a later change never rewrites an old payment.
+  maintenancePercent Float?
+  pesapalPercent     Float?
+  currency           String    @default("UGX")
   // pending | completed | failed | reversed
-  status           String    @default("pending")
+  status             String    @default("pending")
   // As PesaPal reports it: MTN MoMo, Airtel Money, Visa…
-  method           String    @default("")
-  provider         String    @default("pesapal")
-  trackingId       String?
-  confirmationCode String?
+  method             String    @default("")
+  provider           String    @default("pesapal")
+  trackingId         String?
+  confirmationCode   String?
   // Why it failed, when we decided (amount_mismatch, expired, provider_unreachable)
-  statusNote       String?
-  createdAt        DateTime  @default(now())
-  completedAt      DateTime?
-  lastCheckedAt    DateTime?
-  updatedAt        DateTime  @updatedAt
+  statusNote         String?
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+  lastCheckedAt      DateTime?
+  updatedAt          DateTime  @updatedAt
 
   @@index([module, status])
   @@index([memberId, module])
   @@index([campaignId])
   @@index([trackingId])
+}
+
+// A payout of the system maintenance balance to the developers, sent by hand (MoMo or bank) and
+// recorded here by Finance or a Super Admin. Only the method and its reference: no account numbers.
+model MaintenancePayout {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  amountUGX      Int
+  // [{ name, amountUGX }]: each developer's part of it.
+  shares         Json
+  // MTN MoMo | Airtel Money | Bank transfer
+  method         String
+  reference      String
+  note           String   @default("")
+  paidAt         DateTime
+  recordedBy     String   @db.ObjectId
+  recordedByName String
+  createdAt      DateTime @default(now())
+
+  @@index([paidAt])
 }
 
 // ── Website (Studio › Website and the public pages it feeds) ──

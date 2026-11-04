@@ -18,6 +18,14 @@ router.post('/orders/:reference/check', validate(schema.referenceParam, 'params'
 router.get('/pesapal/ipn', controller.ipn);
 router.post('/pesapal/ipn', controller.ipn);
 router.get('/history', requireMember, controller.history);
+
+// The charges added on top of every price, for the checkouts to show the total.
+router.get('/charges', controller.getCharges);
+// System maintenance: Finance and a Super Admin see it and record payouts; only a Super Admin changes the rates.
+router.get('/maintenance', requireAdmin, allow('finance'), controller.getMaintenance);
+router.get('/maintenance/earnings', requireAdmin, allow('finance'), controller.listMaintenanceEarnings);
+router.post('/maintenance/payouts', requireAdmin, allow('finance'), validate(schema.maintenancePayoutBody), controller.recordMaintenancePayout);
+router.put('/maintenance/rates', requireAdmin, allow(), validate(schema.ratesBody), controller.setChargeRates);
 router.post('/subscription/cancel', requireMember, controller.cancelPlan);
 router.post('/subscription/resume', requireMember, controller.resumePlan);
 

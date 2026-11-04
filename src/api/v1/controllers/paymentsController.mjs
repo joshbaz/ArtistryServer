@@ -2,6 +2,8 @@ import * as orders from '../../../services/payments/orders.mjs';
 import { AppError } from '../../../utils/AppError.js';
 import { ipnFields } from '../schemas/payments.mjs';
 import * as access from '../../../services/streaming/access.mjs';
+import * as charges from '../../../services/payments/charges.mjs';
+import * as maintenance from '../../../services/payments/maintenance.mjs';
 
 /**
  * POST /payments/orders → { reference, redirectUrl }: the page sends the payer to PesaPal.
@@ -50,3 +52,11 @@ export const ipn = async (req, res) => {
 
 /** POST /payments/orders/:reference/check (Studio, Finance): ask PesaPal now and apply its answer. */
 export const checkOrder = async (req, res) => res.json({ data: await orders.checkForStudio(req.params.reference) });
+
+/* Charges and system maintenance */
+
+export const getCharges = async (req, res) => res.json({ data: await charges.publicRates() });
+export const getMaintenance = async (req, res) => res.json({ data: await maintenance.getSummary() });
+export const listMaintenanceEarnings = async (req, res) => res.json({ data: await maintenance.listEarnings() });
+export const recordMaintenancePayout = async (req, res) => res.status(201).json({ data: await maintenance.recordPayout(req.body, req.admin) });
+export const setChargeRates = async (req, res) => res.json({ data: await charges.setRates(req.body) });
