@@ -5,7 +5,8 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import * as spaces from '../storage/spaces.mjs';
 import { countView, findWatchable } from './titles.mjs';
-import { mayWatch } from './access.mjs';
+import { hasActivePlan, mayWatch } from './access.mjs';
+import { getAds } from './settings.mjs';
 import { assetPrefix } from './assets.mjs';
 
 /**
@@ -42,9 +43,21 @@ const checkAccess = async (title, member) => {
     throw new AppError('Subscribe to watch this.', 403, { code: 'locked', details: { reason: 'subscribe' } });
 };
 
-/** → { url, expiresAt, duration, intro } for a film (titleId) or an episode (titleId, episodeId). */
+/**
+ * Where ads go, in seconds: a pre-roll ([0]) for a free title, unless the
+ * viewer has a plan or ads are off (Studio › Streaming › Ads). Mid-rolls come later.
+ */
+const adBreaksFor = async (title, member) => {
+    if (title.accessTier !== 'free') return [];
+    const { general, web } = await getAds();
+    if (!general.enabled || !web.preroll) return [];
+    if (member && (await hasActivePlan(member.id))) return [];
+    return [0];
+};
+
+/** → { url, expiresAt, duration, intro, captions, adBreaks } for a film (titleId) or an episode (titleId, episodeId). */
 export const startPlayback = async (target, { member = null, admin = null } = {}) => {
-    const { title, video, intro } = await findWatchable(target, { studio: Boolean(admin) });
+    const { title, video, intro, captions } = await findWatchable(target, { studio: Boolean(admin) });
     if (!admin) await checkAccess(title, member);
     const asset = await prisma.videoAsset.findUnique({ where: { id: video.assetId } });
     if (!asset || asset.status !== 'ready') throw notReady();
@@ -56,7 +69,14 @@ export const startPlayback = async (target, { member = null, admin = null } = {}
         .setSubject(member?.id ?? admin?.id ?? 'guest')
         .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
         .sign(secret);
-    return { url: `${env.API_URL}/api/v1/streaming/play/${token}/master.m3u8`, expiresAt: expiresAt.toISOString(), duration: asset.duration, intro };
+    return {
+        url: `${env.API_URL}/api/v1/streaming/play/${token}/master.m3u8`,
+        expiresAt: expiresAt.toISOString(),
+        duration: asset.duration,
+        intro,
+        captions,
+        adBreaks: admin ? [] : await adBreaksFor(title, member),
+    };
 };
 
 /* Serving the playlists and the key. A ready video never changes, so both are kept in memory for a while. */

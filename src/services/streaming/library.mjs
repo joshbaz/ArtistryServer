@@ -106,8 +106,11 @@ export const clearHistory = async (memberId) => {
     invalidateMember(memberId);
 };
 
-/** Everything at once: GET library. */
+/**
+ * Everything at once: GET library, as the endpoint list has it (and the app
+ * reads): { watchlist, ratings, progress: { titles, episodes } }.
+ */
 export const getLibrary = async (memberId) => {
-    const [watchlist, ratings, progress, episodes] = await Promise.all([getWatchlist(memberId), getRatings(memberId), getProgress(memberId), getEpisodeProgress(memberId)]);
-    return { watchlist, ratings, progress, episodes };
+    const [watchlist, ratings, titles, episodes] = await Promise.all([getWatchlist(memberId), getRatings(memberId), getProgress(memberId), getEpisodeProgress(memberId)]);
+    return { watchlist, ratings, progress: { titles, episodes } };
 };

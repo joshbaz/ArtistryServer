@@ -1,5 +1,6 @@
 import { endSessionByToken, revokeAllSessions } from '../../../services/auth/sessions.mjs';
 import * as members from '../../../services/auth/members.mjs';
+import * as access from '../../../services/streaming/access.mjs';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from '../../../utils/cookies.mjs';
 
 /**
@@ -50,9 +51,13 @@ export const logout = async (req, res) => {
     res.status(204).end();
 };
 
-/** GET /auth/me */
-export const me = (req, res) => {
-    res.json({ data: members.toMemberUser(req.member) });
+/**
+ * GET /auth/me: the member, how they sign in (`methods`), and what they may
+ * watch on the stream site and in the app (`subscription`, `purchases`).
+ */
+export const me = async (req, res) => {
+    const [methods, { subscription, purchases }] = await Promise.all([members.signInMethods(req.member.id), access.getAccess(req.member.id)]);
+    res.json({ data: { ...members.toMemberUser(req.member), methods, subscription: subscription && { ...subscription, source: 'web' }, purchases } });
 };
 
 /** PATCH /auth/me { name } */

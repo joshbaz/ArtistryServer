@@ -440,13 +440,15 @@ export const findWatchable = async ({ titleId, episodeId = null }, { studio = fa
     if (!t || (!studio && !isLive(t, now))) throw unavailable();
     let video = t.video;
     let intro = null;
+    let captions = t.captions ?? [];
     if (t.format === 'series') {
         if (!episodeId) throw fieldError('episodeId', 'Choose an episode to play.');
         const episode = (t.seasons ?? []).flatMap((s) => s.episodes).find((e) => e.id === episodeId);
         if (!episode || (!studio && !isOut(episode.releaseAt, now))) throw new AppError("That episode isn't available.", 404);
         video = episode.video;
         intro = episode.intro ?? null;
+        captions = episode.captions ?? [];
     }
     if (!ready(video) || !video.assetId) throw new AppError("This video isn't ready to play yet.", 409, { code: 'not_ready' });
-    return { title: t, video, intro };
+    return { title: t, video, intro, captions };
 };

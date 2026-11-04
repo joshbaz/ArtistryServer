@@ -127,3 +127,6 @@ export const deleteAccount = async (id) => {
         prisma.member.delete({ where: { id } }),
     ]);
 };
+
+/** The ways a member signs in: google, apple. */
+export const signInMethods = async (id) => [...new Set((await prisma.memberIdentity.findMany({ where: { memberId: id }, select: { provider: true } })).map((i) => i.provider))];
