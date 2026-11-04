@@ -31,7 +31,11 @@ const DOCS = {
             web: { adTagUrl: '', preroll: true, midrollEveryMinutes: 15, skippableAfterSeconds: 5 },
             app: { admobAppIdAndroid: '', admobAppIdIos: '', videoUnitAndroid: '', videoUnitIos: '' },
         },
-        changed: () => invalidate('admin', ['admin', 'ads']),
+        // The Studio's form, and the players that read the public part (stream/ads).
+        changed: () => {
+            invalidate('admin', ['admin', 'ads']);
+            invalidateSite('ads');
+        },
     },
 };
 
@@ -81,3 +85,13 @@ export const dropFromHero = async (titleId) => {
 
 export const getAds = () => getDoc('stream-ads');
 export const updateAds = (patch) => updateDoc('stream-ads', patch);
+
+/**
+ * What the players need (GET stream/ads): whether free viewers see ads, how
+ * often, the web's ad tag and the app's AdMob ids. None of it is secret (it
+ * ships inside every page and app); the Studio's form stays behind sign-in.
+ */
+export const getPublicAds = async () => {
+    const { general, web, app } = await getAds();
+    return { enabled: Boolean(general.enabled), frequencyCapPerHour: general.frequencyCapPerHour, web, app };
+};

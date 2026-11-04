@@ -94,4 +94,6 @@ export default router;
 /** `/stream`: the stream site's home page settings (public read, a Content Manager edits). */
 export const streamSiteRouter = express.Router();
 streamSiteRouter.get('/site', controller.getStreamSite);
+// What the players need to show free viewers ads.
+streamSiteRouter.get('/ads', controller.getPublicAds);
 streamSiteRouter.patch('/site', ...editor, validate(schema.streamSiteBody), controller.updateStreamSite);

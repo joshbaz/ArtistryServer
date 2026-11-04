@@ -57,6 +57,7 @@ export const listSubscribers = async (req, res) => res.json({ data: await plans.
 export const getStreamSite = async (req, res) => res.json({ data: await settings.getStreamSite() });
 export const updateStreamSite = async (req, res) => res.json({ data: await settings.updateStreamSite(req.body) });
 export const getAds = async (req, res) => res.json({ data: await settings.getAds() });
+export const getPublicAds = async (req, res) => res.json({ data: await settings.getPublicAds() });
 export const updateAds = async (req, res) => res.json({ data: await settings.updateAds(req.body) });
 
 /* Uploads (Studio): the file goes straight to Spaces */
