@@ -29,6 +29,8 @@ const AUTH_PATH = /\/auth\/(login|register|google|apple|otp\/request|otp\/verify
 const STUDIO_LOGIN_PATH = /\/auth\/studio\/login$/;
 // An organiser's sign-in and accepting an invite (which sets a password).
 const ORGANIZER_AUTH_PATH = /\/auth\/organizer\/(login|invite\/[\w-]+)$/;
+// A Studio set-password link, and changing a Studio password (which checks the current one).
+const STUDIO_ACCOUNT_PATH = /\/auth\/studio\/(invite\/[\w-]+|password)$/;
 
 // ipKeyGenerator groups IPv6 addresses by subnet so a client can't rotate through them
 const clientIp = (req) => ipKeyGenerator(req.ip || 'unknown');
@@ -99,7 +101,7 @@ export const createRateLimiters = () => {
     const authLimiter = (req, res, next) => {
         if (req.method !== 'POST') return next();
         const path = pathOf(req);
-        const perAccount = STUDIO_LOGIN_PATH.test(path) ? studioLoginLimiter : AUTH_PATH.test(path) || ORGANIZER_AUTH_PATH.test(path) ? loginPerEmailLimiter : null;
+        const perAccount = STUDIO_LOGIN_PATH.test(path) ? studioLoginLimiter : AUTH_PATH.test(path) || ORGANIZER_AUTH_PATH.test(path) || STUDIO_ACCOUNT_PATH.test(path) ? loginPerEmailLimiter : null;
         if (!perAccount) return next();
         loginPerIpLimiter(req, res, (err) => (err ? next(err) : perAccount(req, res, next)));
     };

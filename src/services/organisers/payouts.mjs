@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate } from '../../utils/sockets.js';
+import { notifyStaff } from '../studio/notifications.mjs';
 import { studioViews } from '../voting/campaigns.mjs';
 
 /**
@@ -72,6 +73,8 @@ export const requestPayout = async (organizer, { campaignId, method, accountName
         data: { organizerId: organizer.id, campaignId, amountUGX: summary.availableUGX, method, accountName, accountNumber },
     });
     changed();
+    // The amount and who asked; the account they gave stays in the Studio.
+    notifyStaff('payout-request', { subject: `Payout request from ${organizer.orgName}`, heading: 'An organiser requests a payout', lines: [`${organizer.orgName} asked for UGX ${row.amountUGX.toLocaleString('en')} by ${method}${summary.title ? ` for "${summary.title}"` : ''}. Pay it within 14 business days of the campaign closing.`], path: '/studio/voting/payouts' });
     return toPayout(row);
 };
 

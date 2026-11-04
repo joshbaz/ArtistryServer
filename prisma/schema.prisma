@@ -21,16 +21,24 @@ model AppConfig {
 
 // A Studio account (admin realm). Roles are MOU 3C's: src/utils/permissions.mjs.
 model Staff {
-  id           String    @id @default(auto()) @map("_id") @db.ObjectId
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         String
-  // active | suspended. A suspended account can't sign in, and its open sessions stop at the next request.
-  status       String    @default("active")
-  lastSignInAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  name            String
+  email           String    @unique
+  passwordHash    String
+  role            String
+  // active | suspended | invited. A suspended account can't sign in, and its open sessions stop at the
+  // next request. An invited one has no password until its set-password link is used.
+  status          String    @default("active")
+  lastSignInAt    DateTime?
+  // The emails they chose (services/studio/notifications.mjs); until notifySet, their role's usual ones.
+  notify          String[]  @default([])
+  notifySet       Boolean   @default(false)
+  // A set-password link from Studio › Settings › Team: single use, 7 days. Only its hash is kept.
+  inviteTokenHash String?
+  inviteExpiresAt DateTime?
+  invitedBy       String?   @db.ObjectId
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 // One signed-in device, for either realm. The refresh token rotates on every use; only hashes are kept.
@@ -614,20 +622,20 @@ model SettingsDoc {
 // A member's plan. Paid a period at a time through PesaPal: each payment adds the plan's days to
 // currentPeriodEnd, so it's active while that's ahead. Cancelling only stops the reminders to renew.
 model StreamSubscription {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  memberId          String   @unique @db.ObjectId
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  memberId          String    @unique @db.ObjectId
   planId            String
   startedAt         DateTime
   currentPeriodEnd  DateTime
-  cancelAtPeriodEnd Boolean  @default(false)
+  cancelAtPeriodEnd Boolean   @default(false)
   // The period end each reminder email went out for, so each goes once per period.
   reminderSentFor   DateTime?
   endedNoticeFor    DateTime?
   // As PesaPal reported the last payment: MTN MoMo, Airtel Money, Visa…
-  method            String   @default("")
-  lastOrderId       String?  @db.ObjectId
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  method            String    @default("")
+  lastOrderId       String?   @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([currentPeriodEnd])
 }

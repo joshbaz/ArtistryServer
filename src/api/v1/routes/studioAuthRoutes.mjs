@@ -12,4 +12,17 @@ router.post('/refresh', knownOrigin, controller.refresh);
 router.post('/logout', knownOrigin, controller.logout);
 router.get('/me', requireAdmin, controller.me);
 
+// My account (Studio › Settings). Changing the password is rate limited like a sign-in.
+router.patch('/me', requireAdmin, validate(schema.profileBody), controller.updateMe);
+router.post('/password', requireAdmin, validate(schema.passwordBody), controller.changePassword);
+router.get('/sessions', requireAdmin, controller.listSessions);
+router.post('/sessions/revoke-others', requireAdmin, controller.endOtherSessions);
+router.delete('/sessions/:sessionId', validate(schema.sessionParam, 'params'), requireAdmin, controller.endSession);
+router.get('/notifications', requireAdmin, controller.getNotifications);
+router.put('/notifications', requireAdmin, validate(schema.notificationsBody), controller.setNotifications);
+
+// A set-password link from Team: public, single use, rate limited like a sign-in.
+router.get('/invite/:token', validate(schema.linkParam, 'params'), controller.readLink);
+router.post('/invite/:token', knownOrigin, validate(schema.linkParam, 'params'), validate(schema.acceptLinkBody), controller.acceptLink);
+
 export default router;

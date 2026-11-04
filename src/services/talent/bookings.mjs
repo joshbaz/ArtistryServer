@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate } from '../../utils/sockets.js';
+import { notifyStaff } from '../studio/notifications.mjs';
 import { withNextNumber } from '../system/counters.mjs';
 import { bookableIds } from './talent.mjs';
 
@@ -59,6 +60,7 @@ export const requestBooking = async ({ talentIds, ...request }) => {
         },
     }));
     changed(row.id);
+    notifyStaff('booking', { subject: `New booking request ${row.reference}`, heading: 'A new talent booking request', lines: [`${row.name} asked for ${kept.length === 1 ? '1 talent' : `${kept.length} talents`}${row.projectType ? ` for a ${row.projectType.toLowerCase()}` : ''} (${row.reference}).`], path: '/studio/bookings' });
     return { id: row.id, reference: row.reference, status: 'received', talentIds: kept, name: row.name, email: row.email, phone: row.phone };
 };
 

@@ -71,3 +71,65 @@ export const createStaff = async ({ name, email, password, role }) => {
     });
     return toAdminUser(staff);
 };
+
+/* My account (Studio › Settings) */
+
+const fieldError = (field, message, status = 422) => new AppError(message, status, { details: { fieldErrors: { [field]: [message] } } });
+
+const checkPassword = async (id, password) => {
+    const row = await prisma.staff.findUnique({ where: { id }, omit: { passwordHash: false } });
+    if (!(await verifyPassword(row?.passwordHash, password ?? ''))) throw fieldError('currentPassword', "That isn't your current password.", 403);
+    return row;
+};
+
+const emailTaken = (error) => {
+    if (error.code === 'P2002') throw fieldError('email', 'Another Studio account already uses that email.', 409);
+    throw error;
+};
+
+/** Change your name, or your sign-in email (which asks for your password). */
+export const updateOwnProfile = async (id, { name, email, currentPassword }) => {
+    const me = await prisma.staff.findUniqueOrThrow({ where: { id } });
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (email !== undefined && normalEmail(email) !== me.email) {
+        await checkPassword(id, currentPassword);
+        data.email = normalEmail(email);
+    }
+    if (!Object.keys(data).length) return toAdminUser(me);
+    return toAdminUser(await prisma.staff.update({ where: { id }, data }).catch(emailTaken));
+};
+
+/** A new password, after the current one. Every other device is signed out; this one stays. */
+export const changeOwnPassword = async (id, { currentPassword, newPassword }, { sessionId }) => {
+    await checkPassword(id, currentPassword);
+    if (newPassword.length < MIN_PASSWORD_LENGTH) throw fieldError('newPassword', `Use at least ${MIN_PASSWORD_LENGTH} characters.`);
+    await prisma.staff.update({ where: { id }, data: { passwordHash: await hashPassword(newPassword) } });
+    const { count } = await revokeAllSessions('admin', id, { reason: 'password_changed', except: sessionId });
+    return { signedOutDevices: count };
+};
+
+/** "Chrome on macOS" from a browser's user agent, as near as it can tell. */
+export const deviceName = (ua = '') => {
+    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
+    const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
+    return browser && os ? `${browser} on ${os}` : browser ?? os ?? 'Unknown device';
+};
+
+/** Your open sessions, this device first, then most recently used. */
+export const listOwnSessions = async (id, currentSessionId) => {
+    const now = new Date();
+    const rows = await prisma.session.findMany({ where: { realm: 'admin', subjectId: id, revokedAt: null, expiresAt: { gt: now } }, orderBy: { lastSeenAt: 'desc' } });
+    return rows
+        .map((s) => ({ id: s.id, device: deviceName(s.userAgent ?? ''), signedInAt: s.createdAt.toISOString(), lastSeenAt: s.lastSeenAt.toISOString(), current: s.id === currentSessionId }))
+        .sort((a, b) => b.current - a.current);
+};
+
+/** Sign one of your other devices out. */
+export const endOwnSession = async (id, sessionId, currentSessionId) => {
+    if (sessionId === currentSessionId) throw new AppError('Use Sign out to end this session.', 409);
+    const { count } = await prisma.session.updateMany({ where: { id: sessionId, realm: 'admin', subjectId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'signed_out' } });
+    if (!count) throw new AppError('That device is already signed out.', 404);
+};
+
+export const endOtherSessions = async (id, currentSessionId) => ({ signedOutDevices: (await revokeAllSessions('admin', id, { except: currentSessionId })).count });

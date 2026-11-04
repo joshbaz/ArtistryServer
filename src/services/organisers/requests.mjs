@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate } from '../../utils/sockets.js';
+import { notifyStaff } from '../studio/notifications.mjs';
 import { assertCampaign } from '../voting/campaigns.mjs';
 
 /**
@@ -22,6 +23,7 @@ const changed = (id) => invalidate('admin', ['admin', 'organiser-requests'], { i
 export const submitRequest = async (data) => {
     const row = await prisma.organiserRequest.create({ data });
     changed(row.id);
+    notifyStaff('organiser-request', { subject: `Organiser request from ${row.orgName}`, heading: 'An organiser asks to run a campaign', lines: [`${row.orgName}${row.campaignName ? ` would like to run "${row.campaignName}"` : ' would like to run a campaign'}. Review it within 24 to 48 hours.`], path: '/studio/voting/requests' });
     return { id: row.id, status: row.status };
 };
 

@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate } from '../../utils/sockets.js';
+import { notifyStaff } from '../studio/notifications.mjs';
 
 /**
  * The public contact form. A guest sends a message (no sign-in; rate limited
@@ -29,6 +30,7 @@ const changed = (id) => invalidate('admin', ['admin', 'overview'], { id });
 export const sendEnquiry = async ({ name, email, subject, message }) => {
     const row = await prisma.enquiry.create({ data: { name, email, subject: subject || 'General enquiry', message, read: false } });
     changed(row.id);
+    notifyStaff('enquiry', { subject: `New enquiry: ${row.subject}`, heading: 'A new message from the contact form', lines: [`From ${row.name}, about "${row.subject}".`, 'Read it and reply in Studio › Overview › Recent enquiries.'], path: '/studio' });
     return { status: 'received', id: row.id };
 };
 

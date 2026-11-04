@@ -20,6 +20,7 @@ import streamingRoutes, { streamSiteRouter } from './routes/streamingRoutes.mjs'
 import libraryRoutes from './routes/libraryRoutes.mjs';
 import enquiryRoutes from './routes/enquiryRoutes.mjs';
 import studioOverviewRoutes from './routes/studioOverviewRoutes.mjs';
+import studioTeamRoutes from './routes/studioTeamRoutes.mjs';
 
 
 const router = express.Router();
@@ -43,6 +44,7 @@ const endpoints = [
     { path: '/academy', router: academyRoutes },
     { path: '/studio/options', router: studioOptionsRoutes },
     { path: '/studio/overview', router: studioOverviewRoutes },
+    { path: '/studio/team', router: studioTeamRoutes },
     { path: '/enquiries', router: enquiryRoutes },
     { path: '/streaming', router: streamingRoutes },
     { path: '/stream', router: streamSiteRouter },
