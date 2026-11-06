@@ -1,5 +1,6 @@
 import * as news from '../../../services/content/news.mjs';
 import * as gallery from '../../../services/gallery/gallery.mjs';
+import * as classYears from '../../../services/content/classYears.mjs';
 import * as options from '../../../services/system/options.mjs';
 import * as live from '../../../services/academy/liveClasses.mjs';
 
@@ -19,6 +20,13 @@ export const updateArticle = async (req, res) => res.json({ data: await news.upd
 export const deleteArticle = async (req, res) => gone(res, await news.deleteArticle(req.params.id));
 export const listEvents = async (req, res) => res.json({ data: await news.listEvents() });
 export const getEvent = async (req, res) => res.json({ data: await news.getEvent(req.params.id) });
+
+/* Class year photos */
+export const listClassYears = async (req, res) => res.json({ data: await classYears.listVisible() });
+export const listAllClassYears = async (req, res) => res.json({ data: await classYears.listAll() });
+export const createClassYear = async (req, res) => created(res, await classYears.create(req.body));
+export const updateClassYear = async (req, res) => res.json({ data: await classYears.update(req.params.id, req.body) });
+export const deleteClassYear = async (req, res) => gone(res, await classYears.remove(req.params.id));
 
 /* Gallery */
 export const getGallery = async (req, res) => res.json({ data: await gallery.getGallery() });

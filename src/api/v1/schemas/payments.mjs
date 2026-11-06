@@ -19,7 +19,8 @@ export const createOrderBody = z.discriminatedUnion('kind', [
     }),
     z.object({ kind: z.literal('vip'), campaignId: objectId, participantId: objectId }),
     z.object({ kind: z.literal('subscription'), planId: key }),
-    z.object({ kind: z.literal('ppv'), titleId: key }),
+    // expectedPriceUGX: the price the page showed; a different price now is 409 price_changed.
+    z.object({ kind: z.literal('ppv'), titleId: key, expectedPriceUGX: z.coerce.number().int().min(0).max(10_000_000).optional() }),
 ], { error: 'Choose what to pay for.' });
 
 export const referenceParam = z.object({ reference: z.string().regex(/^A360-[A-Z0-9]+-[A-F0-9]{6}$/) });

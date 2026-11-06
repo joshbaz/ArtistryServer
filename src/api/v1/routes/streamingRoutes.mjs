@@ -67,6 +67,12 @@ router.patch('/plans/:id', term, ...finance, validate(schema.updatePlanBody), co
 router.delete('/plans/:id', term, ...finance, controller.deletePlan);
 router.get('/subscribers', ...finance, controller.listSubscribers);
 
+/* Billing periods: the Studio reads them (the plan form's dropdown), Finance edits them */
+router.get('/billing-periods', requireAdmin, controller.listPeriods);
+router.post('/billing-periods', ...finance, validate(schema.createPeriodBody), controller.createPeriod);
+router.patch('/billing-periods/:id', term, ...finance, validate(schema.updatePeriodBody), controller.updatePeriod);
+router.delete('/billing-periods/:id', term, ...finance, controller.deletePeriod);
+
 /* Uploads */
 const upload = validate(schema.uploadParam, 'params');
 router.post('/uploads', ...editor, validate(schema.startUploadBody), controller.startUpload);

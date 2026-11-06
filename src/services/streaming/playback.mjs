@@ -5,7 +5,8 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import * as spaces from '../storage/spaces.mjs';
 import { countView, findWatchable } from './titles.mjs';
-import { hasActivePlan, mayWatch } from './access.mjs';
+import { hasActivePlan, watchableUntil } from './access.mjs';
+import { ppvStage } from './pricing.mjs';
 import { getAds } from './settings.mjs';
 import { assetPrefix } from './assets.mjs';
 
@@ -32,14 +33,19 @@ const notReady = () => new AppError("This video isn't ready to play yet.", 409, 
 
 /**
  * Who may watch what: 401 to sign in first, then 403 `locked` with the way
- * in (`details.reason`: subscribe, or rent for `priceUGX`), as agreed with
- * the stream site and the app.
+ * in (`details.reason`: subscribe, or rent at the price of its `stage`, until
+ * `nextChangeAt`), as agreed with the stream site and the app. → when access
+ * ends (a rental's end), or null.
  */
 const checkAccess = async (title, member) => {
-    if (title.accessTier === 'free') return;
+    if (title.accessTier === 'free') return null;
     if (!member) throw new AppError('Sign in to watch this.', 401);
-    if (await mayWatch(member.id, title)) return;
-    if (title.accessTier === 'ppv') throw new AppError(`Rent this title to watch it (UGX ${title.priceUGX.toLocaleString('en-UG')}).`, 403, { code: 'locked', details: { reason: 'rent', priceUGX: title.priceUGX } });
+    const until = await watchableUntil(member.id, title);
+    if (until !== false) return until;
+    if (title.accessTier === 'ppv') {
+        const { stage, priceUGX, nextChangeAt } = ppvStage(title);
+        throw new AppError(`Rent this title to watch it (UGX ${priceUGX.toLocaleString('en-UG')}).`, 403, { code: 'locked', details: { reason: 'rent', stage, priceUGX, nextChangeAt } });
+    }
     throw new AppError('Subscribe to watch this.', 403, { code: 'locked', details: { reason: 'subscribe' } });
 };
 
@@ -58,12 +64,13 @@ const adBreaksFor = async (title, member) => {
 /** → { url, expiresAt, duration, intro, captions, adBreaks } for a film (titleId) or an episode (titleId, episodeId). */
 export const startPlayback = async (target, { member = null, admin = null } = {}) => {
     const { title, video, intro, captions } = await findWatchable(target, { studio: Boolean(admin) });
-    if (!admin) await checkAccess(title, member);
+    const until = admin ? null : await checkAccess(title, member);
     const asset = await prisma.videoAsset.findUnique({ where: { id: video.assetId } });
     if (!asset || asset.status !== 'ready') throw notReady();
     // Trending counts plays by viewers, not the Studio's checks.
     if (!admin) countView(title.id);
-    const expiresAt = new Date(Date.now() + LINK_HOURS * 3600 * 1000);
+    // A rental's link ends with the rental.
+    const expiresAt = new Date(Math.min(Date.now() + LINK_HOURS * 3600 * 1000, until?.getTime() ?? Infinity));
     const token = await new SignJWT({ a: asset.id })
         .setProtectedHeader({ alg: 'HS256' })
         .setSubject(member?.id ?? admin?.id ?? 'guest')

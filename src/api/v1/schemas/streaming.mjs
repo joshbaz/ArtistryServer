@@ -40,6 +40,23 @@ const person = z.object({
     role: text(60).default(''),
 });
 
+const ugx = z.coerce.number().int().max(10_000_000);
+/**
+ * A pay-per-view title's price stages (services/streaming/pricing.mjs):
+ * each later stage costs no more than the one before, and none less than UGX 500.
+ * null takes the schedule off (the flat priceUGX again).
+ */
+export const ppvSchedule = z
+    .object({
+        premiereAt: isoDate,
+        earlyUGX: ugx,
+        premiereUGX: ugx,
+        standardUGX: ugx.min(500, 'At least UGX 500.'),
+        premiereDays: z.coerce.number().int().min(1, '1 to 90 days.').max(90, '1 to 90 days.'),
+    })
+    .refine((s) => s.premiereUGX >= s.standardUGX, { path: ['premiereUGX'], message: 'Not below the standard price.' })
+    .refine((s) => s.earlyUGX >= s.premiereUGX, { path: ['earlyUGX'], message: 'Not below the premiere price.' });
+
 const titleFields = {
     title: text(120).pipe(z.string().min(1, 'Give the title a name.')),
     type: key,
@@ -56,7 +73,9 @@ const titleFields = {
     crew: z.array(person).max(100),
     access: z.object({
         tier: z.enum(['free', 'subscription', 'ppv'], { error: 'Choose who can watch.' }),
+        // With a schedule, ignored: the server works the price out (pricing.mjs).
         priceUGX: z.coerce.number().int().min(0).max(10_000_000).default(0),
+        ppv: ppvSchedule.nullable().optional(),
     }),
     // "archived" is the Studio's word; "unpublished" is accepted as the same.
     publishStatus: z.enum(['draft', 'scheduled', 'published', 'archived', 'unpublished']).transform((v) => (v === 'unpublished' ? 'archived' : v)),
@@ -109,7 +128,8 @@ export const updateEpisodeBody = z.object(episodeFields).partial();
 const planFields = {
     name: text(40).pipe(z.string().min(1, 'Give the plan a name.')),
     priceUGX: z.coerce.number().int().min(500, 'A plan costs at least UGX 500.').max(10_000_000),
-    interval: z.enum(['month', 'quarter', 'year'], { error: 'Choose how often it renews.' }),
+    // A billing period's id (streaming/billing-periods); the service checks it exists.
+    interval: key,
     benefits: z.array(text(120).pipe(z.string().min(1))).max(10, 'Up to 10 benefits.'),
     active: z.boolean(),
     highlight: z.boolean(),
@@ -120,6 +140,20 @@ export const createPlanBody = z.object({ ...planFields, benefits: planFields.ben
 
 /** PATCH streaming/plans/:id */
 export const updatePlanBody = z.object(planFields).partial();
+
+/* Billing periods: Weekly, Monthly… a plan's interval is one of these ids. */
+
+const periodFields = {
+    name: text(40).pipe(z.string().min(1, 'Give the period a name.')),
+    days: z.coerce.number().int().min(1, '1 to 366 days.').max(366, '1 to 366 days.'),
+    active: z.boolean(),
+};
+
+/** POST streaming/billing-periods */
+export const createPeriodBody = z.object({ ...periodFields, active: periodFields.active.default(true) });
+
+/** PATCH streaming/billing-periods/:id */
+export const updatePeriodBody = z.object(periodFields).partial();
 
 /* Settings documents: each section may be sent on its own and is merged into what's saved. */
 

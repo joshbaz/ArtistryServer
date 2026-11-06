@@ -9,8 +9,10 @@ import { takeTodaysVote } from '../voting/freeVotes.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
 import { orderCharges, totalOf } from './charges.mjs';
 import { afterEarning } from './maintenance.mjs';
-import { PLAN_DAYS, activeRental, grantPlan, grantRental, hasActivePlan, revokePlan, revokeRental } from '../streaming/access.mjs';
+import { activeRental, grantPlan, grantRental, hasActivePlan, revokePlan, revokeRental } from '../streaming/access.mjs';
 import { getPublicTitle } from '../streaming/titles.mjs';
+import { periodDays } from '../streaming/billingPeriods.mjs';
+import { includedInPlan, ppvStage } from '../streaming/pricing.mjs';
 
 /**
  * Checkout orders (10-voting.md, decision 3). An order is made here, paid on
@@ -98,14 +100,14 @@ export const createVipOrder = async ({ campaignId, participantId, memberId }) =>
  * top (a renewal); a title already rented and still watchable can't be bought again.
  * @returns {Promise<{ reference: string, redirectUrl: string }>}
  */
-export const createStreamOrder = async ({ kind, planId, titleId, memberId }) => {
+export const createStreamOrder = async ({ kind, planId, titleId, expectedPriceUGX, memberId }) => {
     const back = { module: 'streaming', callbackUrl: `${env.STREAM_URL}/payment/return` };
     if (kind === 'subscription') {
         const plan = await prisma.streamPlan.findFirst({ where: { id: planId, active: true } });
         if (!plan) throw new AppError("That plan isn't available any more.", 404);
         const renewal = await hasActivePlan(memberId);
         return checkout(
-            { kind: renewal ? 'renewal' : 'subscription', planId: plan.id, periodDays: PLAN_DAYS[plan.interval] ?? 30, memberId, amountUGX: plan.priceUGX, itemName: `${plan.name} plan` },
+            { kind: renewal ? 'renewal' : 'subscription', planId: plan.id, periodDays: await periodDays(plan.interval), memberId, amountUGX: plan.priceUGX, itemName: `${plan.name} plan` },
             `${plan.name} plan, The Artistry360 Stream`,
             back,
         );
@@ -113,7 +115,18 @@ export const createStreamOrder = async ({ kind, planId, titleId, memberId }) => 
     const title = await getPublicTitle(titleId);
     if (title.access.tier !== 'ppv') throw new AppError(title.access.tier === 'free' ? 'This title is free to watch.' : 'This title comes with a plan, not on its own.', 409, { code: 'not_for_sale' });
     if (await activeRental(memberId, titleId)) throw new AppError('You already have this title. Press play to watch it.', 409, { code: 'already_rented' });
-    return checkout({ kind: 'ppv', titleId, memberId, amountUGX: title.access.priceUGX, itemName: title.title }, `Watch: ${title.title}, The Artistry360 Stream`, back);
+    // The price is the stage's at this moment, and the order keeps it: paying after the stage changes costs what was shown.
+    const stored = { accessTier: 'ppv', priceUGX: title.access.priceUGX, ppv: title.access.ppv ?? null };
+    const now = Date.now();
+    if (includedInPlan(stored, now) && (await hasActivePlan(memberId))) {
+        throw new AppError('This film comes with your plan. Press play to watch it.', 409, { code: 'included_in_plan' });
+    }
+    const { stage, priceUGX } = ppvStage(stored, now);
+    if (expectedPriceUGX !== undefined && expectedPriceUGX !== priceUGX) {
+        const { totalUGX } = await orderCharges(priceUGX);
+        throw new AppError(`The price is now UGX ${priceUGX.toLocaleString('en-UG')}.`, 409, { code: 'price_changed', details: { stage, priceUGX, totalUGX } });
+    }
+    return checkout({ kind: 'ppv', titleId, memberId, amountUGX: priceUGX, ppvStage: stage, itemName: title.title }, `Watch: ${title.title}, The Artistry360 Stream`, back);
 };
 
 /**
@@ -178,7 +191,7 @@ const settle = async (order) => {
             }
             if (count && order.kind === 'vip' && order.memberId) await grantPass(tx, order, order.votes);
             if (count && order.module === 'streaming') {
-                if (order.titleId) await grantRental(tx, order);
+                if (order.titleId) await grantRental(tx, order, now);
                 else await grantPlan(tx, order, paid.method);
             }
             return count;

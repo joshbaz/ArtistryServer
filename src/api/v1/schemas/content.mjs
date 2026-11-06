@@ -29,3 +29,18 @@ export const createArticleBody = z.object({
 
 /** PATCH content/news/:id. Unknown fields are dropped. */
 export const updateArticleBody = z.object(articleFields).partial();
+
+/* Class year photos */
+
+const classYearFields = {
+    year: z.string().trim().regex(/^\d{4}$/, 'Use a four-digit year, like 2025.'),
+    linkText: text(80),
+    image: imageField('The photo').pipe(z.string().min(1, 'Add the photo.')),
+    status: z.enum(['Visible', 'Hidden'], { error: 'Choose Visible or Hidden.' }),
+};
+
+/** POST content/class-years */
+export const createClassYearBody = z.object({ ...classYearFields, linkText: classYearFields.linkText.default(''), status: classYearFields.status.default('Visible') });
+
+/** PATCH content/class-years/:id */
+export const updateClassYearBody = z.object(classYearFields).partial();

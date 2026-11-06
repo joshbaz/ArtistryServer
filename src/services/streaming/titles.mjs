@@ -8,6 +8,8 @@ import { knownAdvisories, missingKeys } from './terms.mjs';
 import { discardAssets, discardEpisodeAssets, discardTitleAssets, later } from './assets.mjs';
 import { ratingCounts } from './library.mjs';
 import { dropFiles, filesOf, storeCaptions, storeImages } from './media.mjs';
+import { ppvStage, scheduleOf } from './pricing.mjs';
+import { recordChange } from '../system/audit.mjs';
 
 /**
  * The streaming library (Studio › Streaming › Library) and the catalogue the
@@ -50,7 +52,8 @@ const toTitle = (t) => ({
     ...(t.trailer ? { trailer: t.trailer } : {}),
     captions: t.captions ?? [],
     ...(t.format === 'series' ? { seasons: t.seasons ?? [] } : {}),
-    access: { tier: t.accessTier, priceUGX: t.priceUGX },
+    // priceUGX is the price right now; a schedule's stages come with it (pricing.mjs).
+    access: { tier: t.accessTier, priceUGX: ppvStage(t).priceUGX, ...(scheduleOf(t) ? { ppv: scheduleOf(t) } : {}) },
     publishStatus: t.publishStatus,
     releaseAt: iso(t.releaseAt),
     featured: t.featured,
@@ -154,16 +157,20 @@ const checkLists = async (data) => {
 
 /**
  * The rules the form also checks, against the title as it will be: only
- * pay-per-view has a price (UGX 500 or more), and a scheduled title needs a
- * time (in the future when it's being set).
+ * pay-per-view has a price (UGX 500 or more, or a schedule of price stages,
+ * whose priceUGX is then worked out and whatever was sent is ignored), and a
+ * scheduled title needs a time (in the future when it's being set).
+ * `access.ppv` left out keeps the schedule; null takes it off.
  */
 const toData = (patch, current) => {
     const { access, ...data } = patch;
     const tier = access?.tier ?? current?.accessTier ?? 'subscription';
-    const price = access?.priceUGX ?? current?.priceUGX ?? 0;
+    const ppv = tier !== 'ppv' ? null : access && 'ppv' in access ? access.ppv ?? null : current?.ppv ?? null;
+    const price = ppv ? ppv.standardUGX : access?.priceUGX ?? current?.priceUGX ?? 0;
     if (access || patch.publishStatus) {
         if (tier === 'ppv' && price < 500) throw fieldError('access.priceUGX', 'Pay-per-view needs a price of at least UGX 500.');
-        Object.assign(data, { accessTier: tier, priceUGX: tier === 'ppv' ? price : 0 });
+        // A schedule keeps its standard price as the flat one too, for anything that reads priceUGX as stored.
+        Object.assign(data, { accessTier: tier, priceUGX: tier === 'ppv' ? price : 0, ppv });
     }
     if ('releaseAt' in data) data.releaseAt = data.releaseAt ? new Date(data.releaseAt) : null;
     const status = data.publishStatus ?? current?.publishStatus ?? 'draft';
@@ -183,7 +190,7 @@ const highestTitleNumber = async () =>
     Math.max(0, ...(await prisma.streamTitle.findMany({ select: { id: true } })).map((t) => Number(/^ttl_(\d+)$/.exec(t.id)?.[1] ?? 0)));
 
 /** A new title is a draft with no video; the upload attaches one. A series starts with an empty Season 1. */
-export const createTitle = async ({ format = 'film', ...input }) => {
+export const createTitle = async ({ format = 'film', ...input }, by) => {
     const series = format === 'series';
     const fields = { type: series ? 'series' : 'film', ...input };
     await checkLists(fields);
@@ -201,16 +208,21 @@ export const createTitle = async ({ format = 'film', ...input }) => {
             },
         }),
     );
+    if (row.accessTier === 'ppv') recordChange(by, 'title-price', row.id, null, priceOf(row));
     changed(row.id);
     return toTitle(row);
 };
 
-export const updateTitle = async (id, patch) => {
+/** The fields that set a title's price, for the audit log. */
+const priceOf = (t) => ({ tier: t.accessTier, priceUGX: t.priceUGX, ppv: t.ppv ?? null });
+
+export const updateTitle = async (id, patch, by) => {
     const current = await prisma.streamTitle.findUnique({ where: { id } });
     if (!current) throw notFound();
     await checkLists(patch);
     await storeImages(patch, ['poster', 'backdrop']);
     const row = await prisma.streamTitle.update({ where: { id }, data: toData(patch, current) });
+    recordChange(by, 'title-price', id, priceOf(current), priceOf(row));
     changed(id);
     // A replaced picture goes from Spaces.
     dropFiles(['poster', 'backdrop'].filter((f) => current[f] !== row[f]).map((f) => current[f]));

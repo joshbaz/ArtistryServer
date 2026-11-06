@@ -10,11 +10,11 @@ import * as maintenance from '../../../services/payments/maintenance.mjs';
  * Votes need no sign-in; a VIP pass, a plan or a rental is for the signed-in member (optionalMember).
  */
 export const createOrder = async (req, res) => {
-    const { kind, campaignId, participantId, votes, planId, titleId } = req.body;
+    const { kind, campaignId, participantId, votes, planId, titleId, expectedPriceUGX } = req.body;
     if (kind === 'vip' && !req.member) throw new AppError('Sign in to become a VIP voter.', 401);
     if ((kind === 'subscription' || kind === 'ppv') && !req.member) throw new AppError('Sign in first, so what you buy is saved to your account.', 401);
     if (kind === 'subscription' || kind === 'ppv') {
-        res.status(201).json({ data: await orders.createStreamOrder({ kind, planId, titleId, memberId: req.member.id }) });
+        res.status(201).json({ data: await orders.createStreamOrder({ kind, planId, titleId, expectedPriceUGX, memberId: req.member.id }) });
         return;
     }
     const order = kind === 'vip'

@@ -301,6 +301,8 @@ model PaymentOrder {
   planId             String?
   periodDays         Int?
   titleId            String?
+  // ppv: the price stage the order was priced at (early | premiere | standard), for revenue by stage.
+  ppvStage           String?
   itemName           String?
   // The price: what the votes, pass, plan or title cost. The client's money; revenue and organiser
   // shares count this.
@@ -420,6 +422,19 @@ model GalleryPhoto {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+}
+
+// One photo per class (Studio › Website › Class Photos); the Classes page shows the Visible ones.
+model ClassYear {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  // "2025"
+  year      String   @unique
+  linkText  String   @default("")
+  image     String
+  // Visible | Hidden
+  status    String   @default("Visible")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // One talent: the Studio sees every field, the public roster only an allowlist (never lastName, phone or email).
@@ -611,7 +626,10 @@ model StreamTitle {
   seasons       Json?
   // free | subscription | ppv (only ppv has a price)
   accessTier    String    @default("subscription")
+  // ppv: the flat price, or with a schedule its standard price.
   priceUGX      Int       @default(0)
+  // ppv premiere pricing: { premiereAt (ISO), earlyUGX, premiereUGX, standardUGX, premiereDays } (services/streaming/pricing.mjs).
+  ppv           Json?
   // draft | scheduled | published | unpublished
   publishStatus String    @default("draft")
   releaseAt     DateTime?
@@ -628,12 +646,25 @@ model StreamPlan {
   id        String   @id @map("_id")
   name      String
   priceUGX  Int
-  // month | quarter | year
+  // A StreamBillingPeriod id: week, month, quarter, year, or one the Studio added.
   interval  String
   benefits  String[]
   active    Boolean  @default(true)
   highlight Boolean  @default(false)
   // The order the stream site lists them in.
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// How often a plan renews (Studio › Streaming › Subscriptions). The id is what plans store in interval.
+model StreamBillingPeriod {
+  id        String   @id @map("_id")
+  name      String
+  // The name lowercased, so two can't differ only in case.
+  nameKey   String   @unique
+  days      Int
+  active    Boolean  @default(true)
   position  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -669,8 +700,8 @@ model StreamSubscription {
   @@index([currentPeriodEnd])
 }
 
-// A pay-per-view title a member bought: watchable until expiresAt, which is 24 hours from the
-// first play (30 days to start watching).
+// A pay-per-view title a member bought: watchable until expiresAt, 24 hours from payment.
+// firstPlayedAt is only on rentals from before, when the 24 hours started on the first play.
 model StreamRental {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
   memberId      String    @db.ObjectId
@@ -773,4 +804,20 @@ model CommentReport {
   createdAt DateTime @default(now())
 
   @@unique([commentId, memberId])
+}
+
+// Who changed money (services/system/audit.mjs): title prices, plans and billing periods, before and after.
+model AuditEntry {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  staffId   String?  @db.ObjectId
+  staffName String   @default("")
+  // title-price | plan | billing-period
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }

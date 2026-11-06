@@ -1,6 +1,7 @@
 import * as titles from '../../../services/streaming/titles.mjs';
 import * as terms from '../../../services/streaming/terms.mjs';
 import * as plans from '../../../services/streaming/plans.mjs';
+import * as periods from '../../../services/streaming/billingPeriods.mjs';
 import * as settings from '../../../services/streaming/settings.mjs';
 import * as uploads from '../../../services/streaming/uploads.mjs';
 import * as playback from '../../../services/streaming/playback.mjs';
@@ -22,8 +23,8 @@ export const getPublicTitle = async (req, res) => res.json({ data: await titles.
 /* Library (Studio) */
 export const listTitles = async (req, res) => res.json({ data: await titles.listTitles() });
 export const getTitle = async (req, res) => res.json({ data: await titles.getTitle(req.params.id) });
-export const createTitle = async (req, res) => created(res, await titles.createTitle(req.body));
-export const updateTitle = async (req, res) => res.json({ data: await titles.updateTitle(req.params.id, req.body) });
+export const createTitle = async (req, res) => created(res, await titles.createTitle(req.body, req.admin));
+export const updateTitle = async (req, res) => res.json({ data: await titles.updateTitle(req.params.id, req.body, req.admin) });
 export const deleteTitle = async (req, res) => gone(res, await titles.deleteTitle(req.params.id));
 export const removeTitleVideo = async (req, res) => res.json({ data: await titles.removeTitleVideo(req.params.id) });
 export const setTrailer = async (req, res) => res.json({ data: await titles.setTrailerAutoplay(req.params.id, req.body.autoplay) });
@@ -48,9 +49,15 @@ export const deleteTerm = (kind) => async (req, res) => gone(res, await terms.de
 /* Plans */
 export const listPlans = async (req, res) => res.json({ data: await plans.listPlans() });
 export const listAllPlans = async (req, res) => res.json({ data: await plans.listAllPlans() });
-export const createPlan = async (req, res) => created(res, await plans.createPlan(req.body));
-export const updatePlan = async (req, res) => res.json({ data: await plans.updatePlan(req.params.id, req.body) });
-export const deletePlan = async (req, res) => gone(res, await plans.deletePlan(req.params.id));
+export const createPlan = async (req, res) => created(res, await plans.createPlan(req.body, req.admin));
+export const updatePlan = async (req, res) => res.json({ data: await plans.updatePlan(req.params.id, req.body, req.admin) });
+export const deletePlan = async (req, res) => gone(res, await plans.deletePlan(req.params.id, req.admin));
+
+/* Billing periods */
+export const listPeriods = async (req, res) => res.json({ data: await periods.listPeriods() });
+export const createPeriod = async (req, res) => created(res, await periods.createPeriod(req.body, req.admin));
+export const updatePeriod = async (req, res) => res.json({ data: await periods.updatePeriod(req.params.id, req.body, req.admin) });
+export const deletePeriod = async (req, res) => gone(res, await periods.deletePeriod(req.params.id, req.admin));
 export const listSubscribers = async (req, res) => res.json({ data: await plans.listSubscribers() });
 
 /* Settings documents */

@@ -1,20 +1,19 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
+import { includedInPlan } from './pricing.mjs';
 
 /**
  * Who may watch what on the stream site and the app. A free title is for
  * everyone; a subscription title for a member whose plan is paid up; a
- * pay-per-view title for a member who rented it (24 hours from first play).
+ * pay-per-view title for a member who rented it (24 hours from payment),
+ * or for a subscriber once it reaches its standard price (pricing.mjs).
  * Plans and rentals are only ever granted by a completed PesaPal payment
  * (payments/orders.mjs), in the same transaction that marks it paid.
  */
 
-/** How long each plan interval lasts. */
-export const PLAN_DAYS = { month: 30, quarter: 91, year: 365 };
 const DAY = 24 * 3600 * 1000;
+/** How long a rental lasts, from payment. */
 export const RENTAL_HOURS = 24;
-// A rental not yet started stays waiting this long.
-const RENTAL_START_DAYS = 30;
 // A plan that ran out this recently still shows to Finance, as past due.
 const PAST_DUE_DAYS = 30;
 
@@ -30,13 +29,13 @@ const toSubscription = (sub) =>
 
 const activeRentals = (memberId, now = new Date()) => prisma.streamRental.findMany({ where: { memberId, expiresAt: { gt: now } }, orderBy: { createdAt: 'desc' } });
 
-/** → { subscription, purchases: titleIds rented and still watchable, rentals: [{ titleId, expiresAt, started }] } */
+/** → { subscription, purchases: titleIds rented and still watchable, rentals: [{ titleId, expiresAt }] } */
 export const getAccess = async (memberId) => {
     const [sub, rentals] = await Promise.all([prisma.streamSubscription.findUnique({ where: { memberId } }), activeRentals(memberId)]);
     return {
         subscription: toSubscription(sub),
         purchases: [...new Set(rentals.map((r) => r.titleId))],
-        rentals: rentals.map((r) => ({ titleId: r.titleId, expiresAt: r.expiresAt.toISOString(), started: Boolean(r.firstPlayedAt) })),
+        rentals: rentals.map((r) => ({ titleId: r.titleId, expiresAt: r.expiresAt.toISOString() })),
     };
 };
 
@@ -46,20 +45,17 @@ export const activeRental = async (memberId, titleId) =>
     prisma.streamRental.findFirst({ where: { memberId, titleId, expiresAt: { gt: new Date() } }, orderBy: { expiresAt: 'desc' } });
 
 /**
- * Whether this member may play this title now (`title` as stored). A
- * rental's 24 hours start on its first play, here.
+ * Whether this member may play this title now (`title` as stored): false, or
+ * until when (a rental's end; null when open-ended). A rental plays from
+ * payment, before the premiere too: that's early access.
  */
-export const mayWatch = async (memberId, title) => {
-    if (title.accessTier === 'free') return true;
+export const watchableUntil = async (memberId, title) => {
+    if (title.accessTier === 'free') return null;
     if (!memberId) return false;
-    if (title.accessTier === 'subscription') return hasActivePlan(memberId);
+    if (title.accessTier === 'subscription') return (await hasActivePlan(memberId)) ? null : false;
     const rental = await activeRental(memberId, title.id);
-    if (!rental) return false;
-    if (!rental.firstPlayedAt) {
-        const now = new Date();
-        await prisma.streamRental.updateMany({ where: { id: rental.id, firstPlayedAt: null }, data: { firstPlayedAt: now, expiresAt: new Date(now.getTime() + RENTAL_HOURS * 3600 * 1000) } });
-    }
-    return true;
+    if (rental) return rental.expiresAt;
+    return includedInPlan(title) && (await hasActivePlan(memberId)) ? null : false;
 };
 
 /* Granting and taking back, inside the payment's transaction (`tx`) */
@@ -81,9 +77,9 @@ export const revokePlan = async (tx, order) => {
     await tx.streamSubscription.update({ where: { id: sub.id }, data: { currentPeriodEnd: new Date(sub.currentPeriodEnd.getTime() - order.periodDays * DAY) } });
 };
 
-export const grantRental = (tx, order) =>
-    // firstPlayedAt written out: on MongoDB a `null` filter doesn't match a missing field, and mayWatch looks for null.
-    tx.streamRental.create({ data: { memberId: order.memberId, titleId: order.titleId, orderId: order.id, firstPlayedAt: null, expiresAt: new Date(Date.now() + RENTAL_START_DAYS * DAY) } });
+/** A paid rental: RENTAL_HOURS from the payment (`paidAt`). */
+export const grantRental = (tx, order, paidAt = new Date()) =>
+    tx.streamRental.create({ data: { memberId: order.memberId, titleId: order.titleId, orderId: order.id, expiresAt: new Date(paidAt.getTime() + RENTAL_HOURS * 3600 * 1000) } });
 
 export const revokeRental = (tx, order) => tx.streamRental.deleteMany({ where: { orderId: order.id } });
 
