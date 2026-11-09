@@ -20,6 +20,9 @@ router.post('/sessions/revoke-others', requireAdmin, controller.endOtherSessions
 router.delete('/sessions/:sessionId', validate(schema.sessionParam, 'params'), requireAdmin, controller.endSession);
 router.get('/notifications', requireAdmin, controller.getNotifications);
 router.put('/notifications', requireAdmin, validate(schema.notificationsBody), controller.setNotifications);
+// The header's bell (notifications above are the email choices).
+router.get('/inbox', requireAdmin, controller.getInbox);
+router.post('/inbox/read', requireAdmin, validate(schema.inboxReadBody), controller.readInbox);
 
 // A set-password link from Team: public, single use, rate limited like a sign-in.
 router.get('/invite/:token', validate(schema.linkParam, 'params'), controller.readLink);

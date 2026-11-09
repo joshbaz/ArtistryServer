@@ -63,6 +63,10 @@ export const endOtherSessions = async (req, res) => res.json({ data: await staff
 export const getNotifications = async (req, res) => res.json({ data: notifications.notificationSettings(await staff.findActiveStaff(req.admin.id)) });
 export const setNotifications = async (req, res) => res.json({ data: await notifications.setNotifications(req.admin.id, req.body.events) });
 
+/* The bell */
+export const getInbox = async (req, res) => res.json({ data: await notifications.listInbox(req.admin.id) });
+export const readInbox = async (req, res) => res.json({ data: await notifications.markInboxRead(req.admin.id, req.body.ids) });
+
 /* The set-password link from Team (public) */
 
 /** GET /auth/studio/invite/:token */

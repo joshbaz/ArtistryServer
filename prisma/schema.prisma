@@ -824,3 +824,20 @@ model AuditEntry {
   @@index([entity, entityId])
   @@index([createdAt])
 }
+
+// The Studio header's bell: one row per staff member per event (services/studio/notifications.mjs).
+// Kept 90 days.
+model StaffNotification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  staffId   String   @db.ObjectId
+  // An EVENTS key: enquiry | booking | organiser-request | payout-request | maintenance-due
+  event     String
+  title     String
+  body      String   @default("")
+  // The Studio page it opens, e.g. /studio/bookings.
+  path      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([staffId, createdAt])
+}

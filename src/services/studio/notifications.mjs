@@ -2,12 +2,16 @@ import prisma from '../../utils/db.mjs';
 import { env } from '../../env.mjs';
 import { roleAllows } from '../../utils/permissions.mjs';
 import { isMailConfigured, sendMail } from '../emails/zohoMail.js';
+import { invalidate } from '../../utils/sockets.js';
 
 /**
- * Emails to the Studio's staff when something arrives that needs a person.
- * Each staff member picks theirs in Studio › Settings; until they do, they
- * get their role's usual ones. Only roles that can open the page behind an
- * email may choose it (payout requests are Finance's).
+ * Telling the Studio's staff when something arrives that needs a person, two ways:
+ *
+ * - The bell in the Studio header: everyone whose role can open the page
+ *   behind the event, whatever their email choices, with or without Zoho.
+ * - Email: each staff member picks theirs in Studio › Settings; until they
+ *   do, they get their role's usual ones. Only roles that can open the page
+ *   behind an email may choose it (payout requests are Finance's).
  *
  * An email says what arrived and links to the Studio; nobody's account or
  * payment details go in it. Sending never holds up or fails the request
@@ -64,15 +68,57 @@ ${lines.map((l) => `<p>${escape(l)}</p>`).join('\n')}
     };
 };
 
+/* The bell */
+
+const KEEP_DAYS = 90;
+const SHOWN = 30;
+const DAY = 24 * 3600 * 1000;
+const bellChanged = () => invalidate('admin', ['admin', 'inbox']);
+
+/** One row for each active staff member who may open the event's page. Never throws. */
+const ring = async (staff, event, { heading, lines, path }) => {
+    try {
+        const to = staff.filter((s) => eventsFor(s.role).includes(event));
+        if (!to.length) return;
+        await prisma.staffNotification.createMany({ data: to.map((s) => ({ staffId: s.id, event, title: heading, body: lines[0] ?? '', path })) });
+        bellChanged();
+        // Old ones go as new ones come; nobody needs a bell from last quarter.
+        prisma.staffNotification.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - KEEP_DAYS * DAY) } } }).catch(() => {});
+    } catch (error) {
+        console.error(`Studio notifications (${event}) not saved:`, error.message);
+    }
+};
+
+/** The bell: the newest notifications for this staff member, and how many are unread. */
+export const listInbox = async (staffId) => {
+    const [items, unread] = await Promise.all([
+        prisma.staffNotification.findMany({ where: { staffId }, orderBy: { createdAt: 'desc' }, take: SHOWN }),
+        prisma.staffNotification.count({ where: { staffId, read: false } }),
+    ]);
+    return {
+        items: items.map((n) => ({ id: n.id, event: n.event, title: n.title, body: n.body, path: n.path, read: n.read, createdAt: n.createdAt.toISOString() })),
+        unread,
+    };
+};
+
+/** Marks `ids` read (only this staff member's own), or all of them without ids. */
+export const markInboxRead = async (staffId, ids) => {
+    await prisma.staffNotification.updateMany({ where: { staffId, read: false, ...(ids ? { id: { in: ids } } : {}) }, data: { read: true } });
+    bellChanged();
+    return listInbox(staffId);
+};
+
 /**
- * Email everyone who chose `event`. Never throws; resolves to how many went out.
+ * Ring the bell for everyone who may see `event`, and email everyone who
+ * chose it. Never throws; resolves to how many emails went out.
  * @param {keyof typeof EVENTS} event
  * @param {{ subject: string, heading: string, lines: string[], path: string }} email
  */
 export const notifyStaff = async (event, { subject, ...email }) => {
-    if (!isMailConfigured()) return 0;
     try {
         const staff = await prisma.staff.findMany({ where: { status: 'active' } });
+        await ring(staff, event, email);
+        if (!isMailConfigured()) return 0;
         const to = staff.filter((s) => chosenEvents(s).includes(event));
         const body = message(email);
         let sent = 0;

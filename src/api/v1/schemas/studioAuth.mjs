@@ -19,6 +19,9 @@ export const passwordBody = z.object({ currentPassword: password.min(1, 'Enter y
 /** PUT /auth/studio/notifications */
 export const notificationsBody = z.object({ events: z.array(z.string().max(40)).max(20) });
 
+/** POST auth/studio/inbox/read: these, or every one without `ids`. */
+export const inboxReadBody = z.object({ ids: z.array(z.string().regex(/^[a-f0-9]{24}$/i, 'We could not find that.')).max(100).optional() });
+
 export const sessionParam = z.object({ sessionId: z.string().regex(/^[a-f0-9]{24}$/i, 'We could not find that.') });
 
 /** The set-password link (Team) */
