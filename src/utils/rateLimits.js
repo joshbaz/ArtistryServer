@@ -10,17 +10,23 @@ export const RATE_LIMITS = {
     studioLogin: { windowMinutes: 15, limit: 5, keyedBy: 'IP + email, failed attempts only' },
     forms: { windowMinutes: 60, limit: 10, keyedBy: 'IP' },
     checkout: { windowMinutes: 60, limit: 30, keyedBy: 'IP, checkouts PesaPal accepted' },
+    // A scanner needs a few a second at most; the offline guest list is the door's most sensitive read.
+    checkIn: { windowMinutes: 1, limit: 180, keyedBy: 'signed-in user, otherwise IP' },
+    guestList: { windowMinutes: 15, limit: 20, keyedBy: 'signed-in user, otherwise IP' },
 };
 
 /**
  * Public writes anyone can send without signing in, each counted per IP:
  * booking requests, organiser requests, the contact form, support reports,
- * and starting a checkout.
+ * and starting a checkout. Then the ticket door, counted per Studio user.
  */
 const PUBLIC_RULES = [
     { name: 'forms', path: /\/(talent\/bookings|organisers\/requests|enquiries|support\/reports)$/, message: 'Thanks, we have plenty from you for now. Please try again later.' },
     // Starting a checkout calls PesaPal; refused ones (voting closed, a typo) don't count.
     { name: 'checkout', path: /\/payments\/orders$/, message: 'Too many payments started from this connection. Please try again in a while.', skipFailedRequests: true },
+    // The ticket door, per signed-in user.
+    { name: 'checkIn', path: /\/tickets\/check-in(\/sync)?$/, message: 'Too many scans at once. Wait a moment and scan again.', perUser: true },
+    { name: 'guestList', method: 'GET', path: /\/tickets\/events\/[^/]+\/guest-list$/, message: 'The guest list was downloaded too often. Try again in a few minutes.', perUser: true },
 ];
 
 // Every member sign-in, sign-up, OTP and password-reset POST (12-backend-integration.md, auth).
@@ -108,13 +114,14 @@ export const createRateLimiters = () => {
 
     const publicLimiters = PUBLIC_RULES.map((rule) => ({
         path: rule.path,
-        run: limiter(rule.name, RATE_LIMITS[rule.name], { keyGenerator: clientIp, handler: rejected(rule.message), skipFailedRequests: Boolean(rule.skipFailedRequests) }),
+        method: rule.method ?? 'POST',
+        run: limiter(rule.name, RATE_LIMITS[rule.name], { keyGenerator: rule.perUser ? apiKey : clientIp, handler: rejected(rule.message), skipFailedRequests: Boolean(rule.skipFailedRequests) }),
     }));
 
-    /** Applies each public rule's limiter to its own POSTs only. */
+    /** Applies each rule's limiter to its own requests (POSTs, unless the rule says otherwise). */
     const formsLimiter = (req, res, next) => {
         const path = pathOf(req);
-        const rule = req.method === 'POST' && publicLimiters.find((l) => l.path.test(path));
+        const rule = publicLimiters.find((l) => l.method === req.method && l.path.test(path));
         if (!rule) return next();
         rule.run(req, res, next);
     };

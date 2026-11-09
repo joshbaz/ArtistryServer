@@ -24,7 +24,7 @@ const monthStart = (now, offset) => {
 };
 
 // Which part of the site a payment came from.
-const SOURCE = { votes: 'votes', vip: 'vip', subscription: 'plans', renewal: 'plans', ppv: 'rentals' };
+const SOURCE = { votes: 'votes', vip: 'vip', subscription: 'plans', renewal: 'plans', ppv: 'rentals', ticket: 'tickets' };
 
 const changed = () => {
     invalidate('admin', ['admin', 'maintenance']);
@@ -80,7 +80,7 @@ export const getSummary = async () => {
         prisma.paymentOrder.findMany({ where: { status: 'completed', maintenanceUGX: { gt: 0 }, completedAt: { gte: from } }, select: { kind: true, maintenanceUGX: true, completedAt: true } }),
         prisma.maintenancePayout.findMany({ orderBy: { paidAt: 'desc' }, take: 200 }),
     ]);
-    const months = Array.from({ length: MONTHS }, (_, i) => ({ month: monthKey(monthStart(now, i - (MONTHS - 1))), votes: 0, vip: 0, plans: 0, rentals: 0 }));
+    const months = Array.from({ length: MONTHS }, (_, i) => ({ month: monthKey(monthStart(now, i - (MONTHS - 1))), votes: 0, vip: 0, plans: 0, rentals: 0, tickets: 0 }));
     const byKey = new Map(months.map((m) => [m.month, m]));
     for (const o of recent) {
         const m = byKey.get(monthKey(o.completedAt));

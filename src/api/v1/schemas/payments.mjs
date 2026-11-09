@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { objectId } from './common.mjs';
+import { objectId, text } from './common.mjs';
 import { key } from './streaming.mjs';
 import { MAX_VOTES } from '../../../services/payments/orders.mjs';
 
@@ -19,6 +19,18 @@ export const createOrderBody = z.discriminatedUnion('kind', [
     }),
     z.object({ kind: z.literal('vip'), campaignId: objectId, participantId: objectId }),
     z.object({ kind: z.literal('subscription'), planId: key }),
+    // Tickets: no sign-in. The price comes from the stored ticket types; the phone is checked, then not kept.
+    z.object({
+        kind: z.literal('ticket'),
+        eventId: key,
+        items: z.array(z.object({ ticketTypeId: key, qty: z.coerce.number().int('Whole tickets only.').min(0).max(20) })).min(1).max(20),
+        buyer: z.object({
+            name: text(80).pipe(z.string().min(2, 'Enter your name.')),
+            email: z.email('Check your email address.').max(200),
+            phone: z.string().trim().min(7, 'Enter your phone number.').max(20, 'Check your phone number.'),
+        }),
+        answers: z.record(z.string().max(60), z.string().max(240)).optional(),
+    }),
     // expectedPriceUGX: the price the page showed; a different price now is 409 price_changed.
     z.object({ kind: z.literal('ppv'), titleId: key, expectedPriceUGX: z.coerce.number().int().min(0).max(10_000_000).optional() }),
 ], { error: 'Choose what to pay for.' });

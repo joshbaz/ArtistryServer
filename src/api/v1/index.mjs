@@ -11,6 +11,7 @@ import paymentRoutes from './routes/paymentRoutes.mjs';
 import authRoutes from './routes/authRoutes.mjs';
 import contentRoutes from './routes/contentRoutes.mjs';
 import galleryRoutes from './routes/galleryRoutes.mjs';
+import ticketsRoutes from './routes/ticketsRoutes.mjs';
 import bookingRoutes from './routes/bookingRoutes.mjs';
 import monologueRoutes from './routes/monologueRoutes.mjs';
 import talentRoutes from './routes/talentRoutes.mjs';
@@ -38,6 +39,7 @@ const endpoints = [
     { path: '/payments', router: paymentRoutes },
     { path: '/content', router: contentRoutes },
     { path: '/gallery', router: galleryRoutes },
+    { path: '/tickets', router: ticketsRoutes },
     { path: '/talent/bookings', router: bookingRoutes },
     { path: '/talent/monologues', router: monologueRoutes },
     { path: '/talent', router: talentRoutes },

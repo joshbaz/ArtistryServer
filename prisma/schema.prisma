@@ -306,6 +306,18 @@ model PaymentOrder {
   titleId            String?
   // ppv: the price stage the order was priced at (early | premiere | standard), for revenue by stage.
   ppvStage           String?
+  // Tickets (module tickets, kind ticket): the event, what was bought at what price
+  // ([{ typeId, name, qty, priceUGX }], fixed when the order is made), the buyer and their answers.
+  // No phone and no payment details are kept.
+  ticketEventId      String?
+  ticketItems        Json?
+  buyerName          String?
+  buyerEmail         String?
+  ticketAnswers      Json?
+  // The seats this order holds while PesaPal is open: true until they're sold (paid) or let go
+  // (failed, reversed, or holdExpiresAt passed).
+  seatsHeld          Boolean?
+  holdExpiresAt      DateTime?
   itemName           String?
   // The price: what the votes, pass, plan or title cost. The client's money; revenue and organiser
   // shares count this.
@@ -337,6 +349,7 @@ model PaymentOrder {
   @@index([memberId, module])
   @@index([campaignId])
   @@index([trackingId])
+  @@index([ticketEventId])
 }
 
 // A payout of the system maintenance balance to the developers, sent by hand (MoMo or bank) and
@@ -840,4 +853,81 @@ model StaffNotification {
   createdAt DateTime @default(now())
 
   @@index([staffId, createdAt])
+}
+
+// ── Tickets (Website › Tickets; docs/20-ticketing-backend-handoff.md) ──
+
+// A ticket the Studio posts: what it's for, when and where, and its ticket types.
+model TicketEvent {
+  id          String    @id @map("_id")
+  title       String
+  description String    @default("")
+  image       String    @default("")
+  startsAt    DateTime?
+  venue       String    @default("")
+  // Draft | On sale | Closed
+  status      String    @default("Draft")
+  // Empty: The Artistry360.
+  organizer   String    @default("")
+  category    String    @default("")
+  // Most tickets in one order (1 to 20); null: 10.
+  maxPerOrder Int?
+  terms       String    @default("")
+  // Asked once per order: [{ id, label, kind: text | choice, options?, required }]
+  questions   Json      @default("[]")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}
+
+// One kind of ticket for an event (Regular, VIP, Early bird). `taken` counts the seats sold
+// (valid or used tickets) and held by open checkouts; it never passes `seats`.
+model TicketType {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  eventId     String
+  // The id the Studio and the pages use (tt_regular), unique within the event.
+  key         String
+  name        String
+  priceUGX    Int
+  seats       Int
+  taken       Int       @default(0)
+  perk        String    @default("")
+  onSaleFrom  DateTime?
+  onSaleUntil DateTime?
+  position    Int       @default(0)
+
+  @@unique([eventId, key])
+  @@index([eventId])
+}
+
+// One seat: its code is what the door scans. Made only once PesaPal confirms (or at once for a
+// free or complimentary ticket). No phone and no payment details.
+model Ticket {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  code      String    @unique
+  eventId   String
+  typeKey   String
+  typeName  String
+  buyerName String
+  email     String    @default("")
+  // What this seat cost (0 for free and complimentary ones).
+  amountUGX Int
+  orderId   String?   @db.ObjectId
+  orderRef  String
+  // valid | used | void
+  status    String    @default("valid")
+  usedAt    DateTime?
+  // purchase | complimentary
+  source    String    @default("purchase")
+  // Complimentary: why, and who issued it (from their session).
+  note      String    @default("")
+  issuedBy  String    @default("")
+  // The order's answers to the event's questions, by question id.
+  answers   Json?
+  issuedAt  DateTime  @default(now())
+
+  @@index([eventId, status])
+  @@index([orderId])
+  @@index([email, eventId])
 }

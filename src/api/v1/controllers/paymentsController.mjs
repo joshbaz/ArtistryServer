@@ -17,6 +17,11 @@ export const createOrder = async (req, res) => {
         res.status(201).json({ data: await orders.createStreamOrder({ kind, planId, titleId, expectedPriceUGX, memberId: req.member.id }) });
         return;
     }
+    if (kind === 'ticket') {
+        const { eventId, items, buyer, answers } = req.body;
+        res.status(201).json({ data: await orders.createTicketOrder({ eventId, items, buyer, answers }) });
+        return;
+    }
     const order = kind === 'vip'
         ? await orders.createVipOrder({ campaignId, participantId, memberId: req.member.id })
         : await orders.createVoteOrder({ campaignId, participantId, votes, memberId: req.member?.id });

@@ -13,6 +13,11 @@ import { activeRental, grantPlan, grantRental, hasActivePlan, revokePlan, revoke
 import { getPublicTitle } from '../streaming/titles.mjs';
 import { periodDays } from '../streaming/billingPeriods.mjs';
 import { includedInPlan, ppvStage } from '../streaming/pricing.mjs';
+import { HOLD_MS, checkFreeLimit, fulfil, priceTicketOrder, releaseHold, releaseSeats, reserveSeats, voidOrderTickets } from '../tickets/checkout.mjs';
+import { issueTickets, toIssued } from '../tickets/tickets.mjs';
+import { sendTicketsEmail } from '../tickets/email.mjs';
+import { ticketsChanged } from '../tickets/events.mjs';
+import { notifyStaff } from '../studio/notifications.mjs';
 
 /**
  * Checkout orders (10-voting.md, decision 3). An order is made here, paid on
@@ -34,8 +39,8 @@ const notFound = () => new AppError('We could not find that payment.', 404);
 /** A reference PesaPal shows the payer: short, unique, and not guessable from the last one. */
 const newReference = () => `A360-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
-/** What the payer's page may know about their own order. */
-const toPayerView = (o) => ({
+/** What the payer's page may know about their own order (a paid ticket order: its codes). */
+const toPayerView = (o, tickets = null) => ({
     reference: o.reference,
     module: o.module,
     status: o.status,
@@ -47,12 +52,18 @@ const toPayerView = (o) => ({
     campaignId: o.campaignId,
     participantId: o.participantId,
     ...(o.module === 'streaming' ? { planId: o.planId ?? undefined, titleId: o.titleId ?? undefined, itemName: o.itemName ?? '' } : {}),
+    ...(o.module === 'tickets' ? { eventId: o.ticketEventId, itemName: o.itemName ?? '', tickets: tickets ? tickets.map(toIssued) : [] } : {}),
 });
 
 const changed = (order) => {
     // Revenue and the activity feed on the Studio's overview, and the maintenance balance.
     invalidate('admin', ['admin', 'overview']);
     invalidate('admin', ['admin', 'maintenance']);
+    if (order.module === 'tickets') {
+        // Seats left on the ticket pages, and the Studio's sales list.
+        ticketsChanged(order.ticketEventId);
+        return;
+    }
     if (order.module === 'streaming') {
         // The member's plan or rental on every device, and Finance's lists.
         invalidateMember(order.memberId);
@@ -159,6 +170,56 @@ const checkout = async (fields, description, { module = 'voting', callbackUrl } 
         return { reference: order.reference, redirectUrl };
     } catch (error) {
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { status: 'failed', statusNote: 'provider_unreachable' } });
+        if (order.seatsHeld) await releaseHold(order);
+        error.orderRecorded = true;
+        throw error;
+    }
+};
+
+/**
+ * Start buying tickets (docs/20, section 4). No sign-in: the buyer gives a
+ * name, email and phone (the phone is used for nothing and not kept). The
+ * server prices the order from the stored types and takes the seats at
+ * once, holding them while PesaPal is open; the codes are made only when
+ * PesaPal confirms. A free order (total 0) skips PesaPal: its tickets are
+ * made and answered straight away.
+ * @returns {Promise<{ reference: string, redirectUrl: string } | { reference: string, amountUGX: 0, tickets: object[] }>}
+ */
+export const createTicketOrder = async ({ eventId, items, buyer, answers }) => {
+    const { event, priced, count, amountUGX, answers: kept } = await priceTicketOrder({ eventId, items, answers });
+    const email = buyer.email.trim().toLowerCase();
+    if (amountUGX === 0) await checkFreeLimit(event, email, count);
+    await reserveSeats(event.id, priced);
+    const fields = { kind: 'ticket', ticketEventId: event.id, ticketItems: priced, buyerName: buyer.name, buyerEmail: email, ticketAnswers: kept, amountUGX, itemName: event.title };
+
+    if (amountUGX === 0) {
+        let made;
+        try {
+            made = await prisma.$transaction(async (tx) => {
+                const order = await tx.paymentOrder.create({
+                    data: { ...fields, reference: newReference(), module: 'tickets', provider: 'free', status: 'completed', completedAt: new Date(), seatsHeld: false, maintenanceUGX: 0, pesapalFeeUGX: 0, totalUGX: 0 },
+                });
+                const tickets = await issueTickets(tx, { eventId: event.id, items: priced, buyerName: buyer.name, email, orderId: order.id, orderRef: order.reference, answers: kept });
+                return { order, tickets };
+            });
+        } catch (error) {
+            await releaseSeats(event.id, priced);
+            throw error;
+        }
+        sendTicketsEmail({ event, tickets: made.tickets, to: email, buyerName: buyer.name, reference: made.order.reference, totalUGX: 0 });
+        changed(made.order);
+        return { reference: made.order.reference, amountUGX: 0, tickets: made.tickets.map(toIssued) };
+    }
+
+    try {
+        return await checkout(
+            { ...fields, seatsHeld: true, holdExpiresAt: new Date(Date.now() + HOLD_MS) },
+            `${count} ticket${count === 1 ? '' : 's'}: ${event.title}`,
+            { module: 'tickets', callbackUrl: `${env.APP_URL}/payment/return/tickets/${encodeURIComponent(event.id)}` },
+        );
+    } catch (error) {
+        // No order was recorded, so nothing else holds these seats.
+        if (!error.orderRecorded) await releaseSeats(event.id, priced);
         throw error;
     }
 };
@@ -179,13 +240,16 @@ const settle = async (order) => {
         if (paid.amount < totalOf(order) || paid.currency !== 'UGX' || paid.reference !== order.reference) {
             console.error(`Order ${order.reference}: PesaPal reports ${paid.amount} ${paid.currency} for ${paid.reference}; not counted`);
             await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', statusNote: 'amount_mismatch', method: paid.method } });
+            if (order.kind === 'ticket') await releaseHold(order);
             return prisma.paymentOrder.findUnique({ where: { id: order.id } });
         }
+        let issued = null;
         const done = await prisma.$transaction(async (tx) => {
             const { count } = await tx.paymentOrder.updateMany({
                 where: { id: order.id, status: 'pending' },
                 data: { status: 'completed', completedAt: now, method: paid.method, confirmationCode: paid.confirmationCode },
             });
+            if (count && order.kind === 'ticket') issued = await fulfil(tx, order);
             if (count && order.participantId && order.votes) {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { increment: order.votes } } });
             }
@@ -196,6 +260,21 @@ const settle = async (order) => {
             }
             return count;
         });
+        if (done && order.kind === 'ticket') {
+            if (issued) {
+                const event = await prisma.ticketEvent.findUnique({ where: { id: order.ticketEventId } });
+                if (event) sendTicketsEmail({ event, tickets: issued, to: order.buyerEmail, buyerName: order.buyerName, reference: order.reference, totalUGX: totalOf(order) });
+            } else {
+                // Paid after the seats went to someone else: no tickets, and the money goes back by hand.
+                console.error(`Ticket order ${order.reference} was paid after its seats were sold; refund it`);
+                notifyStaff('ticket-refund', {
+                    subject: `Refund a ticket payment: ${order.reference}`,
+                    heading: 'A ticket payment arrived after its seats were sold',
+                    lines: [`Order ${order.reference} (${order.itemName ?? 'tickets'}) was paid, but the seats had gone by then, so no tickets were issued. Refund it in PesaPal.`],
+                    path: '/studio/tickets',
+                });
+            }
+        }
         if (done) {
             // The VIP votes just added are today's: the voter's next one opens in 24 hours.
             if (order.kind === 'vip' && order.memberId) await takeTodaysVote(order.campaignId, order.memberId, now).catch(() => {});
@@ -205,6 +284,7 @@ const settle = async (order) => {
         }
     } else if (paid.state === 'failed' && order.status === 'pending') {
         await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', method: paid.method } });
+        if (order.kind === 'ticket') await releaseHold(order);
         changed(order);
     } else if (paid.state === 'reversed') {
         // A refunded or charged-back payment takes its votes back with it.
@@ -214,12 +294,15 @@ const settle = async (order) => {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { decrement: order.votes } } });
             }
             if (count && order.status === 'completed' && order.kind === 'vip') await revokePassFor(tx, order.id);
+            if (count && order.status === 'completed' && order.kind === 'ticket') await voidOrderTickets(tx, order);
             if (count && order.status === 'completed' && order.module === 'streaming') {
                 if (order.titleId) await revokeRental(tx, order);
                 else await revokePlan(tx, order);
             }
             return count;
         });
+        // Reversed before it completed: its held seats go back.
+        if (undone && order.status === 'pending' && order.kind === 'ticket') await releaseHold(order);
         if (undone) changed(order);
     }
     return prisma.paymentOrder.findUnique({ where: { id: order.id } });
@@ -238,7 +321,8 @@ export const getForPayer = async (reference) => {
         // PesaPal briefly unreachable: still pending, and the page asks again.
         order = await settle(order).catch(() => order);
     }
-    return toPayerView(order);
+    const tickets = order.kind === 'ticket' && order.status === 'completed' ? await prisma.ticket.findMany({ where: { orderId: order.id }, orderBy: { code: 'asc' } }) : null;
+    return toPayerView(order, tickets);
 };
 
 /**
@@ -271,9 +355,30 @@ export const expireStaleOrders = async () => {
         const now = order.trackingId ? await settle(order).catch(() => order) : order;
         if (now.status !== 'pending') continue;
         const { count } = await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', statusNote: 'expired' } });
+        if (count && order.kind === 'ticket') await releaseHold(order);
         closed += count;
     }
     return closed;
+};
+
+/**
+ * Ticket checkouts whose hold has run out (docs/20, section 9): a last
+ * check with PesaPal, then the seats go back on sale. The order itself stays
+ * open a while: if PesaPal confirms later, the seats are taken again if
+ * they're still free. Run by the scheduler every minute.
+ * @returns {Promise<number>} how many holds were let go
+ */
+export const releaseExpiredHolds = async () => {
+    const due = await prisma.paymentOrder.findMany({ where: { kind: 'ticket', status: 'pending', seatsHeld: true, holdExpiresAt: { lt: new Date() } }, take: 200 });
+    let released = 0;
+    for (const order of due) {
+        const now = order.trackingId ? await settle(order).catch(() => order) : order;
+        if (now.status === 'pending' && (await releaseHold(order))) {
+            released += 1;
+            changed(order);
+        }
+    }
+    return released;
 };
 
 /**
