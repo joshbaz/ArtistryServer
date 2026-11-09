@@ -3,6 +3,7 @@ import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
 import { campaignEndsAt, campaignPhase, isDay } from './phase.mjs';
 import { campaignHasOrders, pendingVotingPayments, revenueByCampaign } from '../payments/revenue.mjs';
+import { recordChange } from '../system/audit.mjs';
 
 /**
  * Voting campaigns (client/docs/10-voting.md). Every figure the clients show
@@ -12,7 +13,9 @@ import { campaignHasOrders, pendingVotingPayments, revenueByCampaign } from '../
  */
 
 export const MIN_CONTESTANTS = 2;
-const RULE_FIELDS = ['votePriceUGX', 'vipPriceUGX', 'vipDailyVotes'];
+// What a vote and VIP cost and give. The Studio may change them at any time: each order keeps the
+// price and votes it was made with, and each VIP pass its daily votes, so a change only reaches new purchases.
+const PRICE_FIELDS = ['votePriceUGX', 'vipPriceUGX', 'vipDailyVotes'];
 const HOURS_48 = 48 * 60 * 60 * 1000;
 
 const notFound = () => new AppError('Campaign not found.', 404);
@@ -130,11 +133,6 @@ export const checkCampaign = async (patch, next, current) => {
     }
     if (next.startDate && next.endDate && next.endDate < next.startDate) throw new AppError('Voting must close on or after the day it opens.', 422);
 
-    // Fairness: once voting has opened, the price of a vote and what VIP gives can't change.
-    if (current && campaignPhase(current) !== 'upcoming' && RULE_FIELDS.some((k) => patch[k] !== undefined && patch[k] !== current[k])) {
-        throw new AppError('Prices and VIP votes are locked once voting has opened.', 409, { code: 'rules_locked' });
-    }
-
     if (publishing && current?.publishStatus !== 'published') {
         const count = current ? await prisma.contestant.count({ where: { campaignId: current.id } }) : 0;
         if (count < MIN_CONTESTANTS) throw new AppError(`Add at least ${MIN_CONTESTANTS} contestants before publishing.`, 409, { code: 'too_few_contestants' });
@@ -190,13 +188,16 @@ export const createCampaign = async (data) => {
     return studioView(campaign);
 };
 
-export const updateCampaign = async (id, patch) => {
+const pricesOf = (c) => Object.fromEntries(PRICE_FIELDS.map((k) => [k, c[k]]));
+
+export const updateCampaign = async (id, patch, by) => {
     const current = await findCampaign(id);
     const next = { ...current, ...patch };
     await checkCampaign(patch, next, current);
     // Publishing by hand also lifts a take-down.
     const data = patch.publishStatus === 'published' && current.takenDown ? { ...patch, takenDown: null } : patch;
     const campaign = await prisma.campaign.update({ where: { id }, data });
+    recordChange(by, 'campaign-price', id, pricesOf(current), pricesOf(campaign));
     invalidateSite('campaigns', { id });
     return studioView(campaign);
 };

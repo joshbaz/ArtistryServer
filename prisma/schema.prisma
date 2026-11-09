@@ -806,12 +806,12 @@ model CommentReport {
   @@unique([commentId, memberId])
 }
 
-// Who changed money (services/system/audit.mjs): title prices, plans and billing periods, before and after.
+// Who changed money (services/system/audit.mjs): title prices, plans, billing periods and campaign prices, before and after.
 model AuditEntry {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   staffId   String?  @db.ObjectId
   staffName String   @default("")
-  // title-price | plan | billing-period
+  // title-price | plan | billing-period | campaign-price
   entity    String
   entityId  String
   before    Json?

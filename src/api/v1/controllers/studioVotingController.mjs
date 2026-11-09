@@ -18,7 +18,7 @@ export const createCampaign = async (req, res) => {
 };
 
 export const updateCampaign = async (req, res) => {
-    res.json({ data: await campaigns.updateCampaign(req.params.id, req.body) });
+    res.json({ data: await campaigns.updateCampaign(req.params.id, req.body, req.admin) });
 };
 
 export const setClosed = async (req, res) => {

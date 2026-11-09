@@ -227,7 +227,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CampaignInput' } } } }
       responses:
         '200': { description: OK }
-        '409': { description: 'too_few_contestants or rules_locked' }
+        '409': { description: 'too_few_contestants' }
         '422': { description: 'Field errors, or dates missing or out of order' }
     delete:
       tags: [Studio voting]
