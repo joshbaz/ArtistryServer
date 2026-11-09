@@ -13,6 +13,7 @@ export const RATE_LIMITS = {
     // A scanner needs a few a second at most; the offline guest list is the door's most sensitive read.
     checkIn: { windowMinutes: 1, limit: 180, keyedBy: 'signed-in user, otherwise IP' },
     guestList: { windowMinutes: 15, limit: 20, keyedBy: 'signed-in user, otherwise IP' },
+    resend: { windowMinutes: 15, limit: 20, keyedBy: 'signed-in user, otherwise IP' },
 };
 
 /**
@@ -26,6 +27,7 @@ const PUBLIC_RULES = [
     { name: 'checkout', path: /\/payments\/orders$/, message: 'Too many payments started from this connection. Please try again in a while.', skipFailedRequests: true },
     // The ticket door, per signed-in user.
     { name: 'checkIn', path: /\/tickets\/check-in(\/sync)?$/, message: 'Too many scans at once. Wait a moment and scan again.', perUser: true },
+    { name: 'resend', path: /\/tickets\/sales\/[^/]+\/resend$/, message: 'Tickets were resent too often. Try again in a few minutes.', perUser: true },
     { name: 'guestList', method: 'GET', path: /\/tickets\/events\/[^/]+\/guest-list$/, message: 'The guest list was downloaded too often. Try again in a few minutes.', perUser: true },
 ];
 

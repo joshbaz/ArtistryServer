@@ -32,11 +32,11 @@ const ugx = (n) => `UGX ${n.toLocaleString('en')}`;
 const plural = (n, one, many) => `${n.toLocaleString('en')} ${n === 1 ? one : many}`;
 
 // Which bar a completed payment adds to.
-const SOURCE = { subscription: 'subscriptions', renewal: 'subscriptions', ppv: 'payPerView', votes: 'votes', vip: 'votes' };
+const SOURCE = { subscription: 'subscriptions', renewal: 'subscriptions', ppv: 'payPerView', votes: 'votes', vip: 'votes', ticket: 'tickets' };
 
 const revenueByMonth = async (now) => {
     const from = monthStart(now, -(MONTHS - 1));
-    const months = Array.from({ length: MONTHS }, (_, i) => ({ month: monthKey(monthStart(now, i - (MONTHS - 1))), subscriptions: 0, payPerView: 0, votes: 0 }));
+    const months = Array.from({ length: MONTHS }, (_, i) => ({ month: monthKey(monthStart(now, i - (MONTHS - 1))), subscriptions: 0, payPerView: 0, votes: 0, tickets: 0 }));
     const byKey = new Map(months.map((m) => [m.month, m]));
     // Counted when PesaPal confirmed it; a refunded payment is `reversed` and drops out.
     const orders = await prisma.paymentOrder.findMany({
@@ -47,7 +47,7 @@ const revenueByMonth = async (now) => {
         const m = byKey.get(monthKey(o.completedAt ?? o.createdAt));
         if (m && SOURCE[o.kind]) m[SOURCE[o.kind]] += o.amountUGX;
     }
-    const sum = (m) => (m ? m.subscriptions + m.payPerView + m.votes : 0);
+    const sum = (m) => (m ? m.subscriptions + m.payPerView + m.votes + m.tickets : 0);
     return { months, thisMonth: sum(months.at(-1)), lastMonth: sum(months.at(-2)) };
 };
 
@@ -68,6 +68,7 @@ const PAYMENT_ACTION = {
     ppv: { action: 'Title rented', tone: 'success' },
     votes: { action: 'Votes bought', tone: 'gold' },
     vip: { action: 'VIP pass bought', tone: 'gold' },
+    ticket: { action: 'Tickets sold', tone: 'brand' },
 };
 
 const recentActivity = async (now, { money }) => {
@@ -108,7 +109,7 @@ const recentActivity = async (now, { money }) => {
             const what = o.kind === 'votes' ? `${plural(o.votes, 'vote', 'votes')} in ${title.get(o.campaignId) ?? 'a campaign'}`
                 : o.kind === 'vip' ? title.get(o.campaignId) ?? 'A campaign'
                     : o.itemName || 'Streaming';
-            return { id: `pay-${o.id}`, ...PAYMENT_ACTION[o.kind], detail: `${what} · ${ugx(o.amountUGX)}${o.method ? ` by ${o.method}` : ''}`, at: o.completedAt };
+            return { id: `pay-${o.id}`, ...PAYMENT_ACTION[o.kind], detail: `${what} · ${o.amountUGX ? ugx(o.amountUGX) : 'free'}${o.method ? ` by ${o.method}` : ''}`, at: o.completedAt };
         }),
         ...enquiries.map((e) => ({ id: `enq-${e.id}`, action: 'Enquiry received', detail: `${e.name}: ${e.subject}`, tone: 'info', at: e.createdAt })),
         ...bookings.map((b) => ({ id: `bk-${b.id}`, action: 'Booking request', detail: `${b.name} asked for ${plural(b.talentIds.length, 'talent', 'talents')} (${b.reference})`, tone: 'brand', at: b.createdAt })),

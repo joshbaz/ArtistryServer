@@ -3,7 +3,8 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { recordChange } from '../system/audit.mjs';
 import { getEvent, maxPerOrderOf, releaseSeats, reserveSeats, ticketsChanged } from './events.mjs';
-import { sendTicketsEmail } from './email.mjs';
+import { emailTicketsNow, sendTicketsEmail } from './email.mjs';
+import { isMailConfigured } from '../emails/zohoMail.js';
 
 /**
  * Tickets: one per seat, made only once a payment is confirmed (or at once
@@ -98,6 +99,31 @@ export const issueComplimentary = async (eventId, { typeId, qty, name, email, no
     if (email) sendTicketsEmail({ event, tickets, to: email, buyerName: name, reference: tickets[0].orderRef, totalUGX: 0, complimentary: true });
     ticketsChanged(eventId);
     return tickets.map(toSale);
+};
+
+/**
+ * Emails a ticket's whole order again (every ticket in it that isn't void),
+ * with the PDF, to the address it was bought or issued with.
+ */
+export const resendTickets = async (code, by) => {
+    const ticket = await prisma.ticket.findUnique({ where: { code } });
+    if (!ticket) throw new AppError('We could not find that ticket.', 404);
+    if (!ticket.email) throw new AppError('This ticket has no email address to send it to.', 409, { code: 'no_email' });
+    if (!isMailConfigured()) throw new AppError("Email isn't set up on the server yet, so nothing can be sent.", 409, { code: 'mail_off' });
+    const [event, order, all] = await Promise.all([
+        getEvent(ticket.eventId),
+        ticket.orderId ? prisma.paymentOrder.findUnique({ where: { id: ticket.orderId }, select: { totalUGX: true, amountUGX: true } }) : null,
+        prisma.ticket.findMany({ where: { orderRef: ticket.orderRef, status: { not: 'void' } }, orderBy: { code: 'asc' } }),
+    ]);
+    if (!all.length) throw new AppError('Every ticket in this order is void.', 409, { code: 'all_void' });
+    try {
+        await emailTicketsNow({ event, tickets: all, to: ticket.email, buyerName: ticket.buyerName, reference: ticket.orderRef, totalUGX: order?.totalUGX ?? order?.amountUGX ?? 0, complimentary: ticket.source === 'complimentary' });
+    } catch (error) {
+        console.error(`Resending ${ticket.orderRef} failed:`, error.message);
+        throw new AppError("The email didn't go. Try again in a moment.", 502, { code: 'send_failed' });
+    }
+    recordChange(by, 'ticket-resend', code, null, { to: ticket.email, orderRef: ticket.orderRef, tickets: all.length });
+    return { sent: all.length, to: ticket.email };
 };
 
 /** Voids a ticket (a refund, a lost or duplicate one): it fails check-in and frees its seat. Not once it's used. */

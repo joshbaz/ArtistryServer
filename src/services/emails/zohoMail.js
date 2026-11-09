@@ -33,16 +33,17 @@ const from = () => env.MAIL_FROM || `The Artistry360 <${env.ZOHO_SMTP_USER}>`;
 
 /**
  * Send one email. Throws on failure so the caller (the queue) can retry it.
- * @param {{ to: string, subject: string, text: string, html: string }} email
+ * @param {{ to: string, subject: string, text: string, html: string, attachments?: { filename: string, content: Buffer, contentType: string }[] }} email
  * @returns {Promise<string>} Zoho's message id
  */
-export const sendMail = async ({ to, subject, text, html }) => {
+export const sendMail = async ({ to, subject, text, html, attachments }) => {
     const info = await getTransport().sendMail({
         from: from(),
         to,
         subject,
         text,
         html,
+        ...(attachments?.length ? { attachments } : {}),
         ...(env.MAIL_REPLY_TO ? { replyTo: env.MAIL_REPLY_TO } : {}),
     });
     return info.messageId;

@@ -24,6 +24,7 @@ export const deleteEvent = async (req, res) => gone(res, await events.deleteEven
 export const listSales = async (req, res) => res.json({ data: await tickets.listSales(req.params.id) });
 export const issue = async (req, res) => created(res, await tickets.issueComplimentary(req.params.id, req.body, req.admin));
 export const voidTicket = async (req, res) => res.json({ data: await tickets.voidTicket(req.params.code, req.admin) });
+export const resend = async (req, res) => res.json({ data: await tickets.resendTickets(req.params.code, req.admin) });
 
 /* The door */
 export const checkIn = async (req, res) => noStore(res).json({ data: await tickets.checkIn(req.body, req.admin) });
