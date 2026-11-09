@@ -22,7 +22,8 @@ export const isPesapalConfigured = () => Boolean(env.PESAPAL_CONSUMER_KEY && env
 
 const unreachable = () => new AppError("We couldn't reach PesaPal just now. Please try again in a moment.", 502, { code: 'PAYMENT_PROVIDER_UNAVAILABLE' });
 
-const call = async (method, path, { body, token } = {}) => {
+// `answerErrors`: PesaPal's own error reply (an unknown order, say) comes back as data, not as "unreachable".
+const call = async (method, path, { body, token, answerErrors = false } = {}) => {
     let response;
     try {
         response = await fetch(`${BASE}${path}`, {
@@ -36,6 +37,7 @@ const call = async (method, path, { body, token } = {}) => {
         throw unreachable();
     }
     const data = await response.json().catch(() => null);
+    if (answerErrors && data?.error && (data.error.code || data.error.message)) return data;
     if (!response.ok || !data) {
         console.error(`PesaPal ${path} answered ${response.status}`);
         throw unreachable();
@@ -110,19 +112,31 @@ export const submitOrder = async ({ reference, amountUGX, description, callbackU
     return { trackingId: data.order_tracking_id, redirectUrl: data.redirect_url };
 };
 
-// PesaPal's status codes. 0 (INVALID) also covers a checkout nobody has paid yet, so it means "not yet".
+// PesaPal's status codes (GetTransactionStatus). 0 (INVALID) also covers a checkout nobody has paid yet, so it means "not yet".
 const STATES = { 1: 'completed', 2: 'failed', 3: 'reversed' };
+const NAMES = { 0: 'INVALID', 1: 'COMPLETED', 2: 'FAILED', 3: 'REVERSED' };
 
 /**
- * What PesaPal says about an order now.
+ * What PesaPal says about an order now. `status` and `note` are its answer
+ * as it gave it (the code's name and its reason, or ERROR and its error),
+ * for the Studio to show. The payer's account (`payment_account`) is never read.
  * @param {string} trackingId
- * @returns {Promise<{ state: 'pending' | 'completed' | 'failed' | 'reversed', amount: number, currency: string, method: string, confirmationCode: string, reference: string }>}
+ * @returns {Promise<{ state: 'pending' | 'completed' | 'failed' | 'reversed', status: string, note: string, amount: number, currency: string, method: string, confirmationCode: string, reference: string }>}
  */
 export const getStatus = async (trackingId) => {
     const token = await accessToken();
-    const data = await call('GET', `/Transactions/GetTransactionStatus?orderTrackingId=${encodeURIComponent(trackingId)}`, { token });
+    const data = await call('GET', `/Transactions/GetTransactionStatus?orderTrackingId=${encodeURIComponent(trackingId)}`, { token, answerErrors: true });
+    // Both come back as status 0 with an error: an unpaid checkout (payment_details_not_found,
+    // "Pending Payment") and an order PesaPal doesn't know (invalid_order_tracking_id). Only the
+    // first is "not paid yet"; any other error is an ERROR.
+    const raw = data.error?.code || data.error?.message ? data.error : null;
+    const error = raw && raw.code !== 'payment_details_not_found' ? raw : null;
+    const code = error ? undefined : data.status_code;
+    const known = code in NAMES;
     return {
-        state: STATES[data.status_code] ?? 'pending',
+        state: STATES[code] ?? 'pending',
+        status: known ? NAMES[code] : error ? 'ERROR' : String(data.payment_status_description ?? '').toUpperCase(),
+        note: String((error ? [error.code, error.message].filter(Boolean).join(': ') : data.description || raw?.message) ?? '').slice(0, 300),
         amount: Number(data.amount) || 0,
         currency: data.currency ?? '',
         method: data.payment_method ?? '',

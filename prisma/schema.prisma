@@ -338,8 +338,14 @@ model PaymentOrder {
   provider           String    @default("pesapal")
   trackingId         String?
   confirmationCode   String?
-  // Why it failed, when we decided (amount_mismatch, expired, provider_unreachable)
+  // Why it failed, when we decided (amount_mismatch, expired, provider_unreachable, other_keys)
   statusNote         String?
+  // The PesaPal keys it was made with (sandbox | live): one environment can't see the other's orders.
+  pesapalEnv         String?
+  // PesaPal's last answer about it: INVALID, COMPLETED, FAILED, REVERSED, or ERROR, and its reason
+  // in its own words. Never the payer's account or card.
+  pesapalStatus      String?
+  pesapalNote        String?
   createdAt          DateTime  @default(now())
   completedAt        DateTime?
   lastCheckedAt      DateTime?

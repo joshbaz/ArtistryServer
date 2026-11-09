@@ -151,6 +151,7 @@ const checkout = async (fields, description, { module = 'voting', callbackUrl } 
             ...(await orderCharges(fields.amountUGX)),
             reference: newReference(),
             module,
+            pesapalEnv: env.PESAPAL_ENV,
             // Written out: on MongoDB, Prisma's `field: null` filter doesn't match a missing field.
             completedAt: null,
         },
@@ -224,6 +225,9 @@ export const createTicketOrder = async ({ eventId, items, buyer, answers }) => {
     }
 };
 
+/** Made with PesaPal's sandbox keys and the server now has live ones, or the other way round. */
+const otherKeys = (order) => Boolean(order.pesapalEnv && order.pesapalEnv !== env.PESAPAL_ENV);
+
 /**
  * Bring an order up to date with PesaPal. Each change of status happens once,
  * guarded by the status it changes from.
@@ -231,9 +235,15 @@ export const createTicketOrder = async ({ eventId, items, buyer, answers }) => {
  */
 const settle = async (order) => {
     if (!order.trackingId || !['pending', 'completed'].includes(order.status)) return order;
+    // Made with the other keys: these can't see it. Left for the Studio's Check to explain.
+    if (otherKeys(order)) return order;
     const now = new Date();
     await prisma.paymentOrder.update({ where: { id: order.id }, data: { lastCheckedAt: now } });
     const paid = await getStatus(order.trackingId);
+    // PesaPal's own answer, kept for the Studio's Check (only when it says something new).
+    if (paid.status !== order.pesapalStatus || paid.note !== order.pesapalNote) {
+        await prisma.paymentOrder.update({ where: { id: order.id }, data: { pesapalStatus: paid.status, pesapalNote: paid.note } });
+    }
 
     if (paid.state === 'completed' && order.status === 'pending') {
         // Paid less, in another currency, or for another order: never add votes for it.
@@ -474,6 +484,7 @@ export const checkForStudio = async (reference) => {
     const before = await prisma.paymentOrder.findUnique({ where: { reference } });
     if (!before) throw notFound();
     if (!before.trackingId) throw new AppError("This payment never reached PesaPal, so there's nothing to check.", 409, { code: 'not_at_pesapal' });
+    if (otherKeys(before)) return otherKeysAnswer(before);
 
     const expired = before.status === 'failed' && before.statusNote === 'expired';
     if (expired) await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'failed' }, data: { status: 'pending', statusNote: null } });
@@ -491,12 +502,47 @@ export const checkForStudio = async (reference) => {
         after = await prisma.paymentOrder.findUnique({ where: { id: before.id } });
     }
 
+    const pesapal = { status: after.pesapalStatus ?? '', note: after.pesapalNote ?? '' };
     const what = after.module === 'streaming' ? (after.titleId ? 'The rental is on.' : "The plan's time was added.") : `${after.votes.toLocaleString('en')} vote${after.votes === 1 ? '' : 's'} added.`;
     const message = {
         completed: before.status === 'completed' ? 'Already paid. Nothing to add.' : `PesaPal confirms it's paid. ${what}`,
-        pending: "PesaPal hasn't received this payment yet.",
-        failed: before.status === 'failed' ? 'PesaPal still says this payment was not made.' : "PesaPal says this payment wasn't made.",
+        pending: pendingMessage(after),
+        failed: `${before.status === 'failed' ? 'PesaPal still says this payment was not made' : "PesaPal says this payment wasn't made"}${pesapal.note ? `: ${pesapal.note}` : '.'}`,
         reversed: 'PesaPal says this payment was refunded; what it added was taken back.',
     }[after.status];
-    return { reference, status: after.status, changed: after.status !== before.status, message };
+    return { reference, status: after.status, changed: after.status !== before.status, message, pesapal };
+};
+
+/** The Check's words for a payment PesaPal hasn't confirmed, from what it actually said. */
+const pendingMessage = (order) => {
+    const note = order.pesapalNote ? ` (${order.pesapalNote})` : '';
+    if (order.pesapalStatus === 'ERROR') {
+        const keys = order.pesapalEnv ? '' : ' It may have been made with the other PesaPal keys (sandbox or live).';
+        return `PesaPal has no record of this payment${note}.${keys}`;
+    }
+    if (order.pesapalStatus === 'INVALID') {
+        return `Not paid yet: PesaPal says INVALID${note}. The payer opened the checkout but hasn't paid: the page was closed, or the MoMo prompt wasn't approved. Unpaid checkouts close by themselves after a day.`;
+    }
+    return `PesaPal hasn't confirmed this payment yet${order.pesapalStatus ? `: it says ${order.pesapalStatus}${note}` : ''}.`;
+};
+
+/**
+ * An order made with the other keys: no point asking. A sandbox one on the
+ * live server was a test, never real money, so a pending one is closed.
+ */
+const otherKeysAnswer = async (order) => {
+    const test = order.pesapalEnv === 'sandbox';
+    let status = order.status;
+    if (test && order.status === 'pending') {
+        const { count } = await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', statusNote: 'other_keys' } });
+        if (count) {
+            status = 'failed';
+            if (order.kind === 'ticket') await releaseHold(order);
+            changed(order);
+        }
+    }
+    const message = test
+        ? "This was a test payment, made with PesaPal's sandbox keys; it was never real money, so it's closed."
+        : `This payment was made with the live PesaPal keys, but the server now has ${env.PESAPAL_ENV} keys, so it can't be checked from here.`;
+    return { reference: order.reference, status, changed: status !== order.status, message, pesapal: { status: '', note: '' } };
 };
