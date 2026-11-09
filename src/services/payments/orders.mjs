@@ -53,7 +53,16 @@ const toPayerView = (o, tickets = null) => ({
     participantId: o.participantId,
     ...(o.module === 'streaming' ? { planId: o.planId ?? undefined, titleId: o.titleId ?? undefined, itemName: o.itemName ?? '' } : {}),
     ...(o.module === 'tickets' ? { eventId: o.ticketEventId, itemName: o.itemName ?? '', tickets: tickets ? tickets.map(toIssued) : [] } : {}),
+    // Why PesaPal turned it down, in its own words ("Insufficient funds"), for the payer's retry screen.
+    ...(o.status === 'failed' ? { failReason: failedAtPesapal(o) && o.pesapalStatus === 'FAILED' ? o.pesapalNote ?? '' : '' } : {}),
 });
+
+/**
+ * Failed because PesaPal said so (not by us: a wrong amount, the other keys,
+ * PesaPal unreachable, or closed unpaid after a day). PesaPal may still
+ * confirm one later (a payer who carried on in another tab), and then it counts.
+ */
+const failedAtPesapal = (o) => o.status === 'failed' && !o.statusNote;
 
 const changed = (order) => {
     // Revenue and the activity feed on the Studio's overview, and the maintenance balance.
@@ -234,7 +243,7 @@ const otherKeys = (order) => Boolean(order.pesapalEnv && order.pesapalEnv !== en
  * @param {object} order - A PaymentOrder row
  */
 const settle = async (order) => {
-    if (!order.trackingId || !['pending', 'completed'].includes(order.status)) return order;
+    if (!order.trackingId || !(['pending', 'completed'].includes(order.status) || failedAtPesapal(order))) return order;
     // Made with the other keys: these can't see it. Left for the Studio's Check to explain.
     if (otherKeys(order)) return order;
     const now = new Date();
@@ -245,18 +254,20 @@ const settle = async (order) => {
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { pesapalStatus: paid.status, pesapalNote: paid.note } });
     }
 
-    if (paid.state === 'completed' && order.status === 'pending') {
+    // Pending, or failed at PesaPal and now paid after all: it completes, once.
+    const open = order.status === 'pending' || failedAtPesapal(order);
+    if (paid.state === 'completed' && open) {
         // Paid less, in another currency, or for another order: never add votes for it.
         if (paid.amount < totalOf(order) || paid.currency !== 'UGX' || paid.reference !== order.reference) {
             console.error(`Order ${order.reference}: PesaPal reports ${paid.amount} ${paid.currency} for ${paid.reference}; not counted`);
-            await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', statusNote: 'amount_mismatch', method: paid.method } });
+            await prisma.paymentOrder.updateMany({ where: { id: order.id, status: order.status }, data: { status: 'failed', statusNote: 'amount_mismatch', method: paid.method } });
             if (order.kind === 'ticket') await releaseHold(order);
             return prisma.paymentOrder.findUnique({ where: { id: order.id } });
         }
         let issued = null;
         const done = await prisma.$transaction(async (tx) => {
             const { count } = await tx.paymentOrder.updateMany({
-                where: { id: order.id, status: 'pending' },
+                where: { id: order.id, status: order.status, ...(order.status === 'failed' ? { OR: [{ statusNote: null }, { statusNote: { isSet: false } }] } : {}) },
                 data: { status: 'completed', completedAt: now, method: paid.method, confirmationCode: paid.confirmationCode },
             });
             if (count && order.kind === 'ticket') issued = await fulfil(tx, order);
@@ -296,7 +307,7 @@ const settle = async (order) => {
         await prisma.paymentOrder.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed', method: paid.method } });
         if (order.kind === 'ticket') await releaseHold(order);
         changed(order);
-    } else if (paid.state === 'reversed') {
+    } else if (paid.state === 'reversed' && order.status !== 'failed') {
         // A refunded or charged-back payment takes its votes back with it.
         const undone = await prisma.$transaction(async (tx) => {
             const { count } = await tx.paymentOrder.updateMany({ where: { id: order.id, status: order.status }, data: { status: order.status === 'completed' ? 'reversed' : 'failed' } });
