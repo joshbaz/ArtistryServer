@@ -6,16 +6,31 @@
  *
  *   node scripts/check-pending-payments.mjs            every pending payment (newest 50)
  *   node scripts/check-pending-payments.mjs vip        pending VIP passes only (or votes, ticket, ppv…)
+ *   node scripts/check-pending-payments.mjs A360-…     one payment, any status: what we hold and PesaPal's
+ *                                                      whole reply (less the payer's account fields)
  */
 import prisma from '../src/utils/db.mjs';
 import { env } from '../src/env.mjs';
-import { getStatus, isPesapalConfigured } from '../src/services/payments/pesapal.mjs';
+import { getStatus, isPesapalConfigured, rawStatus } from '../src/services/payments/pesapal.mjs';
 
-const kind = process.argv[2];
+const arg = process.argv[2];
 if (!isPesapalConfigured()) {
     console.log('PesaPal keys are not set in .env, so there is nothing to ask.');
     process.exit(1);
 }
+
+if (arg?.startsWith('A360-')) {
+    const o = await prisma.paymentOrder.findUnique({ where: { reference: arg }, select: { reference: true, kind: true, status: true, statusNote: true, trackingId: true, pesapalEnv: true, pesapalStatus: true, pesapalNote: true, method: true, createdAt: true, lastCheckedAt: true } });
+    if (!o) {
+        console.log(`No payment ${arg} on this server.`);
+        process.exit(1);
+    }
+    console.log(`Server keys: ${env.PESAPAL_ENV}\nWhat we hold:`, { ...o, trackingId: o.trackingId ? 'yes' : 'no' });
+    if (o.trackingId) console.log("PesaPal's reply:", await rawStatus(o.trackingId).catch((error) => `could not ask: ${error.message}`));
+    await prisma.$disconnect();
+    process.exit(0);
+}
+const kind = arg;
 
 const orders = await prisma.paymentOrder.findMany({
     where: { status: 'pending', ...(kind ? { kind } : {}) },

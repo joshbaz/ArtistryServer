@@ -123,6 +123,14 @@ const NAMES = { 0: 'INVALID', 1: 'COMPLETED', 2: 'FAILED', 3: 'REVERSED' };
  * @param {string} trackingId
  * @returns {Promise<{ state: 'pending' | 'completed' | 'failed' | 'reversed', status: string, note: string, amount: number, currency: string, method: string, confirmationCode: string, reference: string }>}
  */
+/** PesaPal's status reply as it came, less the payer's account fields (scripts/check-pending-payments.mjs). */
+export const rawStatus = async (trackingId) => {
+    const token = await accessToken();
+    // eslint-disable-next-line no-unused-vars
+    const { payment_account, account_number, ...reply } = await call('GET', `/Transactions/GetTransactionStatus?orderTrackingId=${encodeURIComponent(trackingId)}`, { token, answerErrors: true });
+    return reply;
+};
+
 export const getStatus = async (trackingId) => {
     const token = await accessToken();
     const data = await call('GET', `/Transactions/GetTransactionStatus?orderTrackingId=${encodeURIComponent(trackingId)}`, { token, answerErrors: true });
