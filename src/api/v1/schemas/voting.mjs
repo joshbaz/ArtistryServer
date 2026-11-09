@@ -4,6 +4,12 @@ import { imageField, objectId, text } from './common.mjs';
 // The date rules (both set before publishing, closing on or after opening) need the stored campaign,
 // so services/voting/campaigns.mjs checks them.
 const day = z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Use a date like 2026-11-30.');
+// A 24-hour time, Kampala; empty or null for the default (opens 00:00, closes 23:59:59).
+export const timeOfDay = z
+    .string()
+    .regex(/^(([01]\d|2[0-3]):[0-5]\d)?$/, 'Use a time like 18:30.')
+    .transform((v) => v || null)
+    .nullable();
 const wholeAboveZero = z.coerce.number({ error: 'Prices and VIP votes must be whole numbers above 0.' }).int('Prices and VIP votes must be whole numbers above 0.').min(1, 'Prices and VIP votes must be whole numbers above 0.').max(100_000_000);
 
 const campaignFields = {
@@ -11,6 +17,8 @@ const campaignFields = {
     description: text(2000),
     startDate: day,
     endDate: day,
+    startTime: timeOfDay,
+    endTime: timeOfDay,
     image: imageField('The cover'),
     category: text(60),
     organizer: text(120),
@@ -32,6 +40,8 @@ export const createCampaignBody = z.object({
     description: campaignFields.description.default(''),
     startDate: day.default(''),
     endDate: day.default(''),
+    startTime: timeOfDay.default(null),
+    endTime: timeOfDay.default(null),
     image: campaignFields.image.default(''),
     category: campaignFields.category.default(''),
     organizer: campaignFields.organizer.default('The Artistry360'),

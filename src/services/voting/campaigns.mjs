@@ -1,7 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
-import { campaignEndsAt, campaignPhase, isDay } from './phase.mjs';
+import { campaignEndsAt, campaignPhase, campaignStartsAt, isDay } from './phase.mjs';
 import { campaignHasOrders, pendingVotingPayments, revenueByCampaign } from '../payments/revenue.mjs';
 import { recordChange } from '../system/audit.mjs';
 
@@ -59,6 +59,8 @@ const toPublic = (c, board, now = new Date(), organizerLogo = '') => {
         description: c.description,
         startDate: c.startDate,
         endDate: c.endDate,
+        startTime: c.startTime ?? null,
+        endTime: c.endTime ?? null,
         image: c.image,
         category: c.category,
         organizer: c.organizer,
@@ -132,6 +134,9 @@ export const checkCampaign = async (patch, next, current) => {
         if ((publishing || d) && !isDay(d)) throw new AppError('Set when voting opens and closes before publishing.', 422);
     }
     if (next.startDate && next.endDate && next.endDate < next.startDate) throw new AppError('Voting must close on or after the day it opens.', 422);
+    if (isDay(next.startDate) && isDay(next.endDate) && campaignEndsAt(next.endDate, next.endTime) <= campaignStartsAt(next.startDate, next.startTime)) {
+        throw new AppError('Voting must close after it opens.', 422);
+    }
 
     if (publishing && current?.publishStatus !== 'published') {
         const count = current ? await prisma.contestant.count({ where: { campaignId: current.id } }) : 0;
@@ -175,7 +180,7 @@ export const getStats = async () => {
         drafts: all.length - published.length,
         // Payments still waiting for PesaPal's word.
         pendingPayments,
-        endingSoon: published.filter((c) => c.status === 'ongoing' && campaignEndsAt(c.endDate).getTime() - now < HOURS_48).length,
+        endingSoon: published.filter((c) => c.status === 'ongoing' && campaignEndsAt(c.endDate, c.endTime).getTime() - now < HOURS_48).length,
     };
 };
 

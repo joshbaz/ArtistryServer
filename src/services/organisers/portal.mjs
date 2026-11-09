@@ -65,7 +65,7 @@ export const getMine = async (organizerId, id) => portalView(await ownedCampaign
  */
 export const updateMine = async (organizer, id, patch) => {
     const current = await ownedCampaign(organizer.id, id);
-    const datesChange = (patch.startDate !== undefined && patch.startDate !== current.startDate) || (patch.endDate !== undefined && patch.endDate !== current.endDate);
+    const datesChange = ['startDate', 'endDate', 'startTime', 'endTime'].some((k) => patch[k] !== undefined && patch[k] !== (current[k] ?? null));
     if (datesChange && current.publishStatus === 'published' && campaignPhase(current) !== 'upcoming') {
         throw new AppError('Voting has opened, so the dates are fixed. Ask The Artistry360 team if they must change.', 409, { code: 'dates_locked' });
     }

@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { roleAllows } from '../../utils/permissions.mjs';
 import { payoutDue } from '../payments/maintenance.mjs';
+import { campaignEndsAt, isDay } from '../voting/phase.mjs';
 
 /**
  * The figures behind Studio › Overview that only the server can know: money
@@ -82,12 +83,12 @@ const recentActivity = async (now, { money }) => {
         prisma.member.findMany({ where: { createdAt: { gte: since } }, ...recent, select: { id: true, name: true, lastSignInWith: true, createdAt: true } }),
         prisma.campaign.findMany({
             where: { publishStatus: 'published', OR: [{ closedAt: { gte: since } }, { closedAt: null, endDate: { gte: monthKey(since) } }] },
-            select: { id: true, title: true, closedAt: true, endDate: true, importedVotes: true },
+            select: { id: true, title: true, closedAt: true, endDate: true, endTime: true, importedVotes: true },
         }),
     ]);
 
-    // Campaigns that ended lately: closed early in the Studio, or past their last day (23:59:59 Kampala).
-    const endOf = (c) => c.closedAt ?? (c.endDate ? new Date(Date.parse(`${c.endDate}T23:59:59.999Z`) - KAMPALA) : null);
+    // Campaigns that ended lately: closed early in the Studio, or past their closing time (Kampala).
+    const endOf = (c) => c.closedAt ?? (isDay(c.endDate) ? campaignEndsAt(c.endDate, c.endTime) : null);
     const closed = ended.map((c) => ({ ...c, at: endOf(c) })).filter((c) => c.at && c.at >= since && c.at <= now);
 
     const campaignIds = [...new Set([...orders.map((o) => o.campaignId), ...closed.map((c) => c.id)].filter(Boolean))];

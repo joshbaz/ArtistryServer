@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { imageField, objectId, text } from './common.mjs';
+import { timeOfDay } from './voting.mjs';
 import { MIN_ORGANIZER_PASSWORD } from '../../../services/organisers/accounts.mjs';
 import { PAYOUT_METHODS } from '../../../services/organisers/payouts.mjs';
 
@@ -33,6 +34,8 @@ export const updateCampaignBody = z.object({
     rules: text(2000),
     startDate: day,
     endDate: day,
+    startTime: timeOfDay,
+    endTime: timeOfDay,
 }).partial();
 
 export const publishBody = z.object({ published: z.boolean({ error: 'Say whether to publish.' }) });

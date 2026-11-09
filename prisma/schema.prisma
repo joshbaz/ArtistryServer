@@ -113,9 +113,12 @@ model Campaign {
   id                 String     @id @default(auto()) @map("_id") @db.ObjectId
   title              String
   description        String     @default("")
-  // YYYY-MM-DD, Kampala time: voting runs from 00:00 on startDate to 23:59:59 on endDate. Empty on a draft still waiting for dates.
+  // YYYY-MM-DD, Kampala time: voting runs from startDate (at startTime, else 00:00) to endDate (at endTime, else 23:59:59). Empty on a draft still waiting for dates.
   startDate          String     @default("")
   endDate            String     @default("")
+  // Optional 24-hour times, Kampala ("18:30"). Without them voting opens at 00:00 and closes at 23:59:59.
+  startTime          String?
+  endTime            String?
   image              String     @default("")
   category           String     @default("")
   organizer          String     @default("The Artistry360")
