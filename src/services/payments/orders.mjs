@@ -31,8 +31,8 @@ import { notifyStaff } from '../studio/notifications.mjs';
 export const MAX_VOTES = 10_000;
 // A payer coming back asks often; PesaPal is asked at most this often per order.
 const RECHECK_MS = 3_000;
-// Checkouts nobody finished are closed after this.
-const EXPIRE_AFTER_MS = 24 * 60 * 60 * 1000;
+// Checkouts nobody finished are closed after this (abandoned): a MoMo prompt or a card check takes minutes.
+const EXPIRE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 const notFound = () => new AppError('We could not find that payment.', 404);
 
@@ -54,15 +54,47 @@ const toPayerView = (o, tickets = null) => ({
     ...(o.module === 'streaming' ? { planId: o.planId ?? undefined, titleId: o.titleId ?? undefined, itemName: o.itemName ?? '' } : {}),
     ...(o.module === 'tickets' ? { eventId: o.ticketEventId, itemName: o.itemName ?? '', tickets: tickets ? tickets.map(toIssued) : [] } : {}),
     // Why PesaPal turned it down, in its own words ("Insufficient funds"), for the payer's retry screen.
-    ...(o.status === 'failed' ? { failReason: failedAtPesapal(o) && o.pesapalStatus === 'FAILED' ? o.pesapalNote ?? '' : '' } : {}),
+    ...(o.status === 'failed' ? { failReason: !o.statusNote && o.pesapalStatus === 'FAILED' ? o.pesapalNote ?? '' : '' } : {}),
 });
 
 /**
- * Failed because PesaPal said so (not by us: a wrong amount, the other keys,
- * PesaPal unreachable, or closed unpaid after a day). PesaPal may still
- * confirm one later (a payer who carried on in another tab), and then it counts.
+ * Failed because PesaPal said so, or closed unpaid (abandoned), but not
+ * failed by us (a wrong amount, the other keys, PesaPal unreachable).
+ * PesaPal may still confirm one later (a payer who carried on in another
+ * tab, or paid late), and then it counts.
  */
-const failedAtPesapal = (o) => o.status === 'failed' && !o.statusNote;
+const LATE_OK = [null, undefined, 'expired'];
+const mayStillComplete = (o) => o.status === 'failed' && LATE_OK.includes(o.statusNote);
+
+/** Closed unpaid after EXPIRE_AFTER_MS: the payer never finished. The Studio calls it abandoned. */
+const abandoned = (o) => o.status === 'failed' && o.statusNote === 'expired';
+
+/** The status the Studio's lists show: an abandoned checkout is its own kind, not a failure. */
+const studioStatus = (o) => (abandoned(o) ? 'abandoned' : o.status);
+
+/** Why a payment is where it is, for the Studio's lists (PesaPal's words where it gave them). */
+export const statusReason = (o) => {
+    if (o.status === 'failed') {
+        switch (o.statusNote) {
+            case 'expired':
+                return o.pesapalStatus === 'ERROR' ? 'PesaPal has no record of this checkout. Closed unpaid.' : "Not finished: the payer closed PesaPal or didn't enter their details. Closed unpaid.";
+            case 'amount_mismatch':
+                return 'PesaPal reported a different amount, so nothing was added.';
+            case 'other_keys':
+                return "A test payment made with PesaPal's sandbox keys.";
+            case 'provider_unreachable':
+                return "PesaPal couldn't be reached when the checkout opened.";
+            case 'seats_gone':
+                return 'Paid after the seats were sold, so no tickets were issued. Refund it in PesaPal.';
+            default:
+                return o.pesapalNote ? `PesaPal: ${o.pesapalNote}` : 'PesaPal said the payment failed.';
+        }
+    }
+    if (o.status === 'reversed') return 'Refunded or charged back; what it added was taken back.';
+    if (o.status === 'pending' && o.pesapalStatus === 'INVALID') return "Waiting: the payer hasn't paid yet.";
+    if (o.status === 'pending' && o.pesapalStatus === 'ERROR') return `PesaPal has no record of this checkout${o.pesapalNote ? ` (${o.pesapalNote})` : ''}.`;
+    return '';
+};
 
 const changed = (order) => {
     // Revenue and the activity feed on the Studio's overview, and the maintenance balance.
@@ -243,7 +275,7 @@ const otherKeys = (order) => Boolean(order.pesapalEnv && order.pesapalEnv !== en
  * @param {object} order - A PaymentOrder row
  */
 const settle = async (order) => {
-    if (!order.trackingId || !(['pending', 'completed'].includes(order.status) || failedAtPesapal(order))) return order;
+    if (!order.trackingId || !(['pending', 'completed'].includes(order.status) || mayStillComplete(order))) return order;
     // Made with the other keys: these can't see it. Left for the Studio's Check to explain.
     if (otherKeys(order)) return order;
     const now = new Date();
@@ -254,8 +286,8 @@ const settle = async (order) => {
         await prisma.paymentOrder.update({ where: { id: order.id }, data: { pesapalStatus: paid.status, pesapalNote: paid.note } });
     }
 
-    // Pending, or failed at PesaPal and now paid after all: it completes, once.
-    const open = order.status === 'pending' || failedAtPesapal(order);
+    // Pending, or failed at PesaPal or abandoned and now paid after all: it completes, once.
+    const open = order.status === 'pending' || mayStillComplete(order);
     if (paid.state === 'completed' && open) {
         // Paid less, in another currency, or for another order: never add votes for it.
         if (paid.amount < totalOf(order) || paid.currency !== 'UGX' || paid.reference !== order.reference) {
@@ -267,7 +299,7 @@ const settle = async (order) => {
         let issued = null;
         const done = await prisma.$transaction(async (tx) => {
             const { count } = await tx.paymentOrder.updateMany({
-                where: { id: order.id, status: order.status, ...(order.status === 'failed' ? { OR: [{ statusNote: null }, { statusNote: { isSet: false } }] } : {}) },
+                where: { id: order.id, status: order.status, ...(order.status === 'failed' ? { OR: [{ statusNote: null }, { statusNote: { isSet: false } }, { statusNote: 'expired' }] } : {}) },
                 data: { status: 'completed', completedAt: now, method: paid.method, confirmationCode: paid.confirmationCode },
             });
             if (count && order.kind === 'ticket') issued = await fulfil(tx, order);
@@ -366,7 +398,7 @@ export const handleIpn = async ({ OrderTrackingId: trackingId, OrderMerchantRefe
 
 /**
  * Close checkouts nobody finished: each gets a last check with PesaPal,
- * and one still unpaid after a day is marked failed. Run by the scheduler.
+ * and one still unpaid after 3 hours is closed as abandoned (failed, statusNote expired). Run by the scheduler.
  * @returns {Promise<number>} how many were closed
  */
 export const expireStaleOrders = async () => {
@@ -428,7 +460,8 @@ export const toVoteOrderRow = (titles, names) => (o) => ({
     votes: o.votes,
     amountUGX: o.amountUGX,
     method: o.method || 'PesaPal',
-    status: o.status,
+    status: studioStatus(o),
+    reason: statusReason(o),
     createdAt: o.createdAt.toISOString(),
     campaignTitle: titles.get(o.campaignId) ?? 'Deleted campaign',
     contestantName: o.participantId ? names.get(o.participantId) ?? 'Removed contestant' : '',
@@ -456,7 +489,8 @@ export const listStreamingOrders = async () => {
         totalUGX: totalOf(o),
         method: o.method || 'PesaPal',
         // A refunded payment counts as not paid in the Studio's totals.
-        status: o.status === 'reversed' ? 'failed' : o.status,
+        status: o.status === 'reversed' ? 'failed' : studioStatus(o),
+        reason: statusReason(o),
         createdAt: o.createdAt.toISOString(),
         itemName: streamItemName(o),
     }));
@@ -486,9 +520,9 @@ export const listMemberPayments = async (memberId) => {
 /**
  * The Studio's Check (Transactions, Finance): ask PesaPal about one payment
  * now, whatever its state. Paid: it completes, adding its votes, plan or
- * rental, in the same guarded transaction as the IPN. A checkout closed after
- * a day unpaid is opened again for the check, in case the money came late,
- * and closed again if PesaPal still says unpaid. Refunds are picked up too.
+ * rental, in the same guarded transaction as the IPN. An abandoned checkout
+ * or one PesaPal failed is asked about too, in case the money came late; it
+ * stays as it was if PesaPal still says unpaid. Refunds are picked up too.
  * → { reference, status, changed, message }
  */
 export const checkForStudio = async (reference) => {
@@ -497,20 +531,13 @@ export const checkForStudio = async (reference) => {
     if (!before.trackingId) throw new AppError("This payment never reached PesaPal, so there's nothing to check.", 409, { code: 'not_at_pesapal' });
     if (otherKeys(before)) return otherKeysAnswer(before);
 
-    const expired = before.status === 'failed' && before.statusNote === 'expired';
-    if (expired) await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'failed' }, data: { status: 'pending', statusNote: null } });
-
+    // An abandoned or PesaPal-failed checkout is asked about too: settle completes it if the money came after all.
     let after;
     try {
-        after = await settle(await prisma.paymentOrder.findUnique({ where: { id: before.id } }));
+        after = await settle(before);
     } catch (error) {
-        if (expired) await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'pending' }, data: { status: 'failed', statusNote: 'expired' } });
         console.error(`Check of ${reference} failed:`, error.message);
         throw new AppError("We couldn't reach PesaPal just now. Try again in a moment.", 502, { code: 'provider_unreachable' });
-    }
-    if (expired && after.status === 'pending') {
-        await prisma.paymentOrder.updateMany({ where: { id: before.id, status: 'pending' }, data: { status: 'failed', statusNote: 'expired' } });
-        after = await prisma.paymentOrder.findUnique({ where: { id: before.id } });
     }
 
     const pesapal = { status: after.pesapalStatus ?? '', note: after.pesapalNote ?? '' };
@@ -518,7 +545,9 @@ export const checkForStudio = async (reference) => {
     const message = {
         completed: before.status === 'completed' ? 'Already paid. Nothing to add.' : `PesaPal confirms it's paid. ${what}`,
         pending: pendingMessage(after),
-        failed: `${before.status === 'failed' ? 'PesaPal still says this payment was not made' : "PesaPal says this payment wasn't made"}${pesapal.note ? `: ${pesapal.note}` : '.'}`,
+        failed: abandoned(after)
+            ? 'Still not paid: the payer never finished this checkout, so it stays abandoned.'
+            : `${before.status === 'failed' ? 'PesaPal still says this payment was not made' : "PesaPal says this payment wasn't made"}${pesapal.note ? `: ${pesapal.note}` : '.'}`,
         reversed: 'PesaPal says this payment was refunded; what it added was taken back.',
     }[after.status];
     return { reference, status: after.status, changed: after.status !== before.status, message, pesapal };
@@ -532,7 +561,7 @@ const pendingMessage = (order) => {
         return `PesaPal has no record of this payment${note}.${keys}`;
     }
     if (order.pesapalStatus === 'INVALID') {
-        return `Not paid yet: PesaPal says INVALID${note}. The payer opened the checkout but hasn't paid: the page was closed, or the MoMo prompt wasn't approved. Unpaid checkouts close by themselves after a day.`;
+        return `Not paid yet: PesaPal says INVALID${note}. The payer opened the checkout but hasn't paid: the page was closed, or the MoMo prompt wasn't approved. Unpaid checkouts close by themselves after 3 hours.`;
     }
     return `PesaPal hasn't confirmed this payment yet${order.pesapalStatus ? `: it says ${order.pesapalStatus}${note}` : ''}.`;
 };

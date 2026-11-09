@@ -14,7 +14,7 @@ const MINUTE = 60 * 1000;
  * One-off timed work (a title's release, a class reminder) goes on BullMQ as a delayed job instead.
  */
 const TASKS = [
-    // Checkouts nobody finished get a last check with PesaPal, and are closed after a day.
+    // Checkouts nobody finished get a last check with PesaPal, and are closed (abandoned) after 3 hours.
     { name: 'expire-unpaid-orders', every: 15 * MINUTE, run: expireStaleOrders, done: (n) => n && `Closed ${n} unpaid checkout${n === 1 ? '' : 's'}` },
     // Ticket checkouts hold their seats 10 minutes; after that the seats go back on sale.
     { name: 'release-ticket-holds', every: MINUTE, run: releaseExpiredHolds, done: (n) => n && `Released the seats of ${n} unpaid ticket checkout${n === 1 ? '' : 's'}` },
