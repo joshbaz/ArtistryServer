@@ -3,6 +3,7 @@ import { redis } from '../utils/redis.mjs';
 import { expireStaleOrders, releaseExpiredHolds } from '../services/payments/orders.mjs';
 import { closeStaleUploads } from '../services/streaming/uploads.mjs';
 import { sendPlanReminders } from '../services/streaming/reminders.mjs';
+import { creditDuePasses } from '../services/voting/vipCredits.mjs';
 
 const MINUTE = 60 * 1000;
 
@@ -16,6 +17,8 @@ const MINUTE = 60 * 1000;
 const TASKS = [
     // Checkouts nobody finished get a last check with PesaPal, and are closed (abandoned) after 3 hours.
     { name: 'expire-unpaid-orders', every: 15 * MINUTE, run: expireStaleOrders, done: (n) => n && `Closed ${n} unpaid checkout${n === 1 ? '' : 's'}` },
+    // VIP passes: each day's votes go to the voter's contestant automatically, 24 hours apart, until voting closes.
+    { name: 'vip-daily-votes', every: 15 * MINUTE, run: creditDuePasses, done: (n) => n && `Gave ${n} day${n === 1 ? '' : 's'} of VIP votes` },
     // Ticket checkouts hold their seats 10 minutes; after that the seats go back on sale.
     { name: 'release-ticket-holds', every: MINUTE, run: releaseExpiredHolds, done: (n) => n && `Released the seats of ${n} unpaid ticket checkout${n === 1 ? '' : 's'}` },
     // Studio uploads left open a day (the tab closed mid-way) are closed, and their parts deleted from Spaces.

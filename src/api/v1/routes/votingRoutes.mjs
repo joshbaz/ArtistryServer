@@ -14,5 +14,7 @@ router.get('/campaigns', controller.listCampaigns);
 router.get('/campaigns/:id', campaign, controller.getCampaign);
 router.get('/campaigns/:id/me', campaign, requireMember, controller.myVote);
 router.post('/campaigns/:id/votes', campaign, requireMember, validate(schema.freeVoteBody), controller.castFreeVote);
+// A VIP voter chooses who their automatic daily votes go to.
+router.put('/campaigns/:id/vip/contestant', campaign, requireMember, validate(schema.freeVoteBody), controller.setVipContestant);
 
 export default router;

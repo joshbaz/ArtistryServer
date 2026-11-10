@@ -93,6 +93,8 @@ export const deviceHeader = z.string().regex(/^[\w-]{16,128}$/);
 export const voteLedgerQuery = z.object({
     type: z.enum(['free', 'vipDaily', 'bought', 'vipInstant']).optional(),
     participantId: objectId.optional(),
+    // One voter's votes (a VIP pass's history).
+    memberId: objectId.optional(),
     // The previous page's `next`.
     before: z.iso.datetime().optional(),
     limit: z.coerce.number().int().min(1).max(500).default(100),

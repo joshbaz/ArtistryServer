@@ -1,5 +1,6 @@
 import * as campaigns from '../../../services/voting/campaigns.mjs';
 import * as freeVotes from '../../../services/voting/freeVotes.mjs';
+import * as vipCredits from '../../../services/voting/vipCredits.mjs';
 import { AppError } from '../../../utils/AppError.js';
 import { deviceHeader } from '../schemas/voting.mjs';
 
@@ -15,7 +16,7 @@ export const getCampaign = async (req, res) => {
     res.json({ data: await campaigns.getPublished(req.params.id) });
 };
 
-/** GET /voting/campaigns/:id/me → { nextFreeVoteAt, isVip, dailyVotes } for the signed-in voter */
+/** GET /voting/campaigns/:id/me → { nextFreeVoteAt, isVip, dailyVotes, ticketCode?, vip? } for the signed-in voter */
 export const myVote = async (req, res) => {
     res.json({ data: await freeVotes.voterStatus(req.params.id, req.member.id) });
 };
@@ -32,4 +33,9 @@ export const castFreeVote = async (req, res) => {
         deviceId: device.data,
     });
     res.status(201).json({ data: vote });
+};
+
+/** PUT /voting/campaigns/:id/vip/contestant { participantId }: where the VIP pass's daily votes go from now on */
+export const setVipContestant = async (req, res) => {
+    res.json({ data: await vipCredits.setVipContestant({ campaignId: req.params.id, memberId: req.member.id, participantId: req.body.participantId }) });
 };

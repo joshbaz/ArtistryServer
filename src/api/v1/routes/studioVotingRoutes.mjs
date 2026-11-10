@@ -32,6 +32,7 @@ router.delete('/campaigns/:id', id, superAdmin, controller.deleteCampaign);
 // Where every vote came from (any Studio role; voter names and emails for Super Admin and Moderator only).
 router.get('/campaigns/:id/votes/summary', id, controller.voteSummary);
 router.get('/campaigns/:id/votes', id, validate(schema.voteLedgerQuery, 'query'), controller.voteLedger);
+router.get('/campaigns/:id/vip-passes', id, controller.vipPasses);
 
 router.get('/campaigns/:id/contestants', id, controller.listContestants);
 router.post('/campaigns/:id/contestants', id, editor, validate(schema.createContestantBody), controller.createContestant);

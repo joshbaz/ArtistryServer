@@ -9,7 +9,8 @@ import { AppError } from '../../utils/AppError.js';
  *
  *   imported      votes carried over from before the platform
  *   free          a signed-in voter's daily free vote
- *   vipDaily      the same, cast with a VIP pass (it counts the pass's daily votes)
+ *   vipDaily      a VIP pass's daily votes: given automatically each day (VipCredit), or,
+ *                 before they were automatic, the voter's free vote cast with the pass
  *   bought        votes paid for through PesaPal
  *   vipInstant    the votes a VIP purchase adds at once
  *
@@ -61,9 +62,10 @@ export const voteBreakdown = async (campaignId) => {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, importedVotes: true } });
     if (!campaign) throw notFound();
 
-    const [contestants, free, paid, freeVoters, buyers, reversed] = await Promise.all([
+    const [contestants, free, credits, paid, freeVoters, buyers, reversed] = await Promise.all([
         prisma.contestant.findMany({ where: { campaignId }, orderBy: { number: 'asc' } }),
         freeVoteGroups(campaignId),
+        prisma.vipCredit.groupBy({ by: ['participantId'], where: { campaignId }, _sum: { votes: true }, _count: { _all: true } }),
         // Every field grouped on here is always set on an order.
         prisma.paymentOrder.groupBy({ by: ['participantId', 'kind'], where: { campaignId, module: 'voting', status: 'completed' }, _sum: { votes: true }, _count: { _all: true } }),
         freeVoterCount(campaignId),
@@ -80,13 +82,19 @@ export const voteBreakdown = async (campaignId) => {
         add(rows.get(c.id), 'imported', c.importedVotes);
         add(totals, 'imported', c.importedVotes);
     }
-    const counts = { freeVotes: 0, orders: 0 };
+    const counts = { freeVotes: 0, vipCredits: 0, orders: 0 };
     for (const g of free) {
         const key = g.vip ? 'vipDaily' : 'free';
         const n = g.votes;
         counts.freeVotes += g.count;
         add(totals, key, n);
         if (rows.has(g.participantId)) add(rows.get(g.participantId), key, n);
+    }
+    for (const g of credits) {
+        const n = g._sum.votes ?? 0;
+        counts.vipCredits += g._count._all;
+        add(totals, 'vipDaily', n);
+        if (rows.has(g.participantId)) add(rows.get(g.participantId), 'vipDaily', n);
     }
     for (const g of paid) {
         const key = g.kind === 'vip' ? 'vipInstant' : 'bought';
@@ -107,30 +115,35 @@ export const voteBreakdown = async (campaignId) => {
 };
 
 /**
- * Every vote in the campaign, newest first, a page at a time: free votes
- * and completed or reversed PesaPal orders, merged by time. `before` is the
+ * Every vote in the campaign, newest first, a page at a time: free votes,
+ * automatic VIP daily votes and completed or reversed PesaPal orders, merged
+ * by time. `memberId` narrows it to one voter (a VIP pass's history). `before` is the
  * previous page's `next`. Voter names and emails only with `identities`
  * (Super Admin, Moderator); otherwise a short voter id, so repeat voters can
  * still be spotted.
  * @param {string} campaignId
- * @param {{ type?: string, participantId?: string, before?: string, limit?: number }} query
+ * @param {{ type?: string, participantId?: string, memberId?: string, before?: string, limit?: number }} query
  * @param {{ identities: boolean }} access
  */
-export const voteLedger = async (campaignId, { type, participantId, before, limit = 100 }, { identities }) => {
+export const voteLedger = async (campaignId, { type, participantId, memberId, before, limit = 100 }, { identities }) => {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true } });
     if (!campaign) throw notFound();
     const at = before ? { lt: new Date(before) } : undefined;
-    const contestant = participantId ? { participantId } : {};
+    const contestant = { ...(participantId ? { participantId } : {}), ...(memberId ? { memberId } : {}) };
     const wantFree = !type || type === 'free' || type === 'vipDaily';
+    const wantCredits = !type || type === 'vipDaily';
     const wantPaid = !type || type === 'bought' || type === 'vipInstant';
 
-    const [free, orders] = await Promise.all([
+    const [free, credits, orders] = await Promise.all([
         wantFree
             ? prisma.freeVote.findMany({
                 where: { campaignId, ...contestant, ...(type === 'vipDaily' ? { vip: true } : type === 'free' ? { vip: { not: true } } : {}), ...(at ? { createdAt: at } : {}) },
                 orderBy: { createdAt: 'desc' },
                 take: limit,
             })
+            : [],
+        wantCredits
+            ? prisma.vipCredit.findMany({ where: { campaignId, ...contestant, ...(at ? { createdAt: at } : {}) }, orderBy: { createdAt: 'desc' }, take: limit })
             : [],
         wantPaid
             ? prisma.paymentOrder.findMany({
@@ -148,6 +161,7 @@ export const voteLedger = async (campaignId, { type, participantId, before, limi
 
     const merged = [
         ...free.map((v) => ({ at: v.createdAt, row: v, source: 'free' })),
+        ...credits.map((v) => ({ at: v.createdAt, row: v, source: 'credit' })),
         ...orders.map((o) => ({ at: o.completedAt, row: o, source: 'order' })),
     ].sort((a, b) => b.at - a.at).slice(0, limit);
 
@@ -170,6 +184,8 @@ export const voteLedger = async (campaignId, { type, participantId, before, limi
         const c = names.get(row.participantId);
         const base = { id: row.id, at: when.toISOString(), participantId: row.participantId, contestantName: c?.fullName ?? 'Removed contestant', contestantNumber: c?.number ?? null, votes: row.votes, voter: who(row.memberId) };
         if (source === 'free') return { ...base, type: row.vip ? 'vipDaily' : 'free', status: 'counted' };
+        // Given automatically by the voter's VIP pass, on its `day`.
+        if (source === 'credit') return { ...base, type: 'vipDaily', status: 'counted', auto: true, day: row.day };
         return {
             ...base,
             type: row.kind === 'vip' ? 'vipInstant' : 'bought',

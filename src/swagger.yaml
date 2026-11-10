@@ -155,15 +155,27 @@ paths:
       security: [{ bearer: [] }]
       parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
       responses:
-        '200': { description: '{ nextFreeVoteAt: string | null, isVip, dailyVotes }' }
+        '200': { description: '{ nextFreeVoteAt: string | null, isVip, dailyVotes, ticketCode?, vip?: { contestantId, contestantName, day, votesGiven, nextCreditAt, running } }' }
         '401': { description: Not signed in }
+  /voting/campaigns/{id}/vip/contestant:
+    put:
+      tags: [Voting]
+      summary: Choose who a VIP pass's automatic daily votes go to, from the next day on
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [participantId], properties: { participantId: { type: string } } } } } }
+      responses:
+        '200': { description: '{ contestantId, contestantName }' }
+        '404': { description: 'not_vip' }
+        '409': { description: 'not_open or closed' }
   /voting/campaigns/{id}/votes:
     post:
       tags: [Voting]
       summary: Cast the free vote
       description: |
         One per voter per campaign every 24 hours, one per device (X-Device-Id) whoever is signed in, and at most 50 per
-        network (hashed IP). Only keyed hashes of the IP and device id are stored.
+        network (hashed IP). Only keyed hashes of the IP and device id are stored. It counts 1 for everyone: a VIP
+        pass's daily votes are given automatically every 24 hours.
       security: [{ bearer: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }
@@ -193,10 +205,19 @@ paths:
         - { in: path, name: id, required: true, schema: { type: string } }
         - { in: query, name: type, schema: { type: string, enum: [free, vipDaily, bought, vipInstant] } }
         - { in: query, name: participantId, schema: { type: string } }
+        - { in: query, name: memberId, schema: { type: string }, description: One voter's votes (a VIP pass's history) }
         - { in: query, name: before, schema: { type: string, format: date-time }, description: The previous page's meta.next }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
       responses:
-        '200': { description: '{ data: votes[], meta: { next, identities } }' }
+        '200': { description: '{ data: votes[], meta: { next, identities } }. Automatic VIP votes are type vipDaily with auto and day.' }
+  /voting/studio/campaigns/{id}/vip-passes:
+    get:
+      tags: [Studio voting]
+      summary: Every VIP pass in a campaign and how far its automatic daily votes have got
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ data: [{ id, memberId, voter, contestantName, contestantNumber, dailyVotes, day, votesGiven, nextCreditAt, state, since }], meta: { identities } }' }
   /voting/studio/campaigns:
     get:
       tags: [Studio voting]

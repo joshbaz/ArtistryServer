@@ -1,6 +1,7 @@
 import * as campaigns from '../../../services/voting/campaigns.mjs';
 import * as contestants from '../../../services/voting/contestants.mjs';
 import * as audit from '../../../services/voting/audit.mjs';
+import * as vipCredits from '../../../services/voting/vipCredits.mjs';
 import { roleAllows } from '../../../utils/permissions.mjs';
 
 /** Studio › Voting (admin realm): every campaign, drafts included, and its contestants. */
@@ -66,4 +67,10 @@ export const voteLedger = async (req, res) => {
     const identities = roleAllows(req.admin.role, ['moderator']);
     const { items, next } = await audit.voteLedger(req.params.id, req.query, { identities });
     res.json({ data: items, meta: { next, identities } });
+};
+
+/** GET /voting/studio/campaigns/:id/vip-passes: every VIP pass and how far its automatic daily votes have got. */
+export const vipPasses = async (req, res) => {
+    const identities = roleAllows(req.admin.role, ['moderator']);
+    res.json({ data: await vipCredits.listPasses(req.params.id, { identities }), meta: { identities } });
 };

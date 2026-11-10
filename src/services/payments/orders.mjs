@@ -5,7 +5,6 @@ import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateMember, invalidateSite } from '../../utils/sockets.js';
 import { openForVotes } from '../voting/campaigns.mjs';
 import { activePass, grantPass, revokePassFor } from '../voting/vip.mjs';
-import { takeTodaysVote } from '../voting/freeVotes.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
 import { orderCharges, totalOf } from './charges.mjs';
 import { afterEarning } from './maintenance.mjs';
@@ -306,7 +305,7 @@ const settle = async (order) => {
             if (count && order.participantId && order.votes) {
                 await tx.contestant.update({ where: { id: order.participantId }, data: { platformVotes: { increment: order.votes } } });
             }
-            if (count && order.kind === 'vip' && order.memberId) await grantPass(tx, order, order.votes);
+            if (count && order.kind === 'vip' && order.memberId) await grantPass(tx, order, order.votes, now);
             if (count && order.module === 'streaming') {
                 if (order.titleId) await grantRental(tx, order, now);
                 else await grantPlan(tx, order, paid.method);
@@ -329,8 +328,6 @@ const settle = async (order) => {
             }
         }
         if (done) {
-            // The VIP votes just added are today's: the voter's next one opens in 24 hours.
-            if (order.kind === 'vip' && order.memberId) await takeTodaysVote(order.campaignId, order.memberId, now).catch(() => {});
             changed(order);
             // Not awaited: an email about the balance never holds up PesaPal's IPN.
             afterEarning(order.maintenanceUGX ?? 0);
