@@ -16,8 +16,8 @@ import { passStatus } from './vipCredits.mjs';
  *     in on it, so one phone can't vote again under a second account;
  *   - the network: at most NETWORK_LIMIT per campaign per 24 hours from one
  *     IP, high enough for a campus or office behind one address.
- * IPs and device ids are kept only as keyed hashes. A VIP voter's free vote
- * counts 1 like everyone's: their pass's daily votes are given automatically
+ * IPs and device ids are kept only as keyed hashes. A VIP voter has no free
+ * vote: their pass's daily votes are given automatically instead
  * (vipCredits.mjs).
  */
 
@@ -97,6 +97,12 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
     const ipHash = hashed('ip', ip || 'unknown');
     const deviceHash = hashed('device', deviceId);
 
+    // A VIP pass's automatic daily votes take the place of the free vote.
+    const pass = await activePass(campaignId, memberId);
+    if (pass) {
+        throw new AppError(`You're a VIP voter: your ${pass.dailyVotes} votes are given automatically every day, so there's no free vote to cast.`, 409, { code: 'vip_auto' });
+    }
+
     if (!(await claimSlot(campaignId, memberId, now))) throw used(await nextFreeVoteAt(campaignId, memberId) ?? new Date(now.getTime() + DAY));
 
     const [fromDevice, fromNetwork] = await Promise.all([
@@ -110,7 +116,7 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
             : new AppError('Too many free votes from this network today. You can still boost with paid votes.', 429, { code: 'network_limit' });
     }
 
-    // One vote, VIP or not: a VIP pass's daily votes are given automatically (vipCredits.mjs).
+    // One vote (a VIP voter never gets here: their daily votes are automatic, vipCredits.mjs).
     // Two single-document writes rather than one transaction: a popular contestant gets many votes
     // at once, and transactions on the same document would fail each other with write conflicts.
     await prisma.freeVote.create({ data: { campaignId, participantId, memberId, votes: 1, vip: false, ipHash, deviceHash } });

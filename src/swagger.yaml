@@ -174,8 +174,8 @@ paths:
       summary: Cast the free vote
       description: |
         One per voter per campaign every 24 hours, one per device (X-Device-Id) whoever is signed in, and at most 50 per
-        network (hashed IP). Only keyed hashes of the IP and device id are stored. It counts 1 for everyone: a VIP
-        pass's daily votes are given automatically every 24 hours.
+        network (hashed IP). Only keyed hashes of the IP and device id are stored. It counts 1. A VIP voter has no
+        free vote: their pass's daily votes are given automatically every 24 hours instead (409 vip_auto).
       security: [{ bearer: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }
@@ -185,7 +185,7 @@ paths:
         '201': { description: '{ participantId, added, isVip, nextFreeVoteAt }' }
         '400': { description: 'device_required' }
         '401': { description: Not signed in }
-        '409': { description: 'not_open or closed' }
+        '409': { description: 'not_open, closed, or vip_auto (a VIP voter: their votes are automatic)' }
         '422': { description: Not a contestant in this campaign }
         '429': { description: 'free_vote_used (details.nextAt), device_limit or network_limit' }
   /voting/studio/campaigns/{id}/votes/summary:
