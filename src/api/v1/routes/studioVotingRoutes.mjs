@@ -33,6 +33,8 @@ router.delete('/campaigns/:id', id, superAdmin, controller.deleteCampaign);
 router.get('/campaigns/:id/votes/summary', id, controller.voteSummary);
 router.get('/campaigns/:id/votes', id, validate(schema.voteLedgerQuery, 'query'), controller.voteLedger);
 router.get('/campaigns/:id/vip-passes', id, controller.vipPasses);
+// Emailing a VIP voter their pass is for the roles that see who they are.
+router.post('/vip-passes/:id/email', id, allow('moderator'), validate(schema.vipEmailBody), controller.emailVipPass);
 
 router.get('/campaigns/:id/contestants', id, controller.listContestants);
 router.post('/campaigns/:id/contestants', id, editor, validate(schema.createContestantBody), controller.createContestant);

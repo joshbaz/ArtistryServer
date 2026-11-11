@@ -99,3 +99,6 @@ export const voteLedgerQuery = z.object({
     before: z.iso.datetime().optional(),
     limit: z.coerce.number().int().min(1).max(500).default(100),
 });
+
+/** POST /voting/studio/vip-passes/:id/email: an optional note from the team, shown above the pass. */
+export const vipEmailBody = z.object({ note: z.string().trim().max(1000).optional() });

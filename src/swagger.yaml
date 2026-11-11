@@ -210,6 +210,19 @@ paths:
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
       responses:
         '200': { description: '{ data: votes[], meta: { next, identities } }. Automatic VIP votes are type vipDaily with auto and day.' }
+  /voting/studio/vip-passes/{id}/email:
+    post:
+      tags: [Studio voting]
+      summary: Email a VIP voter their pass (daily votes, ticket code, account to sign in with), with an optional note
+      description: Super Admin and Moderator only.
+      security: [{ bearer: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { note: { type: string, maxLength: 1000 } } } } } }
+      responses:
+        '200': { description: '{ to }' }
+        '404': { description: No such pass }
+        '409': { description: 'revoked, no_email or mail_off' }
+        '502': { description: 'send_failed' }
   /voting/studio/campaigns/{id}/vip-passes:
     get:
       tags: [Studio voting]

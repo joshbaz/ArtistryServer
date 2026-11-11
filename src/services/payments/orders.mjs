@@ -5,6 +5,7 @@ import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateMember, invalidateSite } from '../../utils/sockets.js';
 import { openForVotes } from '../voting/campaigns.mjs';
 import { activePass, grantPass, revokePassFor } from '../voting/vip.mjs';
+import { sendVipEmail } from '../voting/vipEmail.mjs';
 import { getStatus, submitOrder } from './pesapal.mjs';
 import { orderCharges, totalOf } from './charges.mjs';
 import { afterEarning } from './maintenance.mjs';
@@ -328,6 +329,8 @@ const settle = async (order) => {
             }
         }
         if (done) {
+            // The new VIP voter's pass by email: their daily votes, ticket code and the account to sign in with.
+            if (order.kind === 'vip' && order.memberId) sendVipEmail({ campaignId: order.campaignId, memberId: order.memberId });
             changed(order);
             // Not awaited: an email about the balance never holds up PesaPal's IPN.
             afterEarning(order.maintenanceUGX ?? 0);

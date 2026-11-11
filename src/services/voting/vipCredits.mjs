@@ -201,7 +201,7 @@ export const listPasses = async (campaignId, { identities }) => {
     const memberIds = [...new Set(passes.map((p) => p.memberId))];
     const contestantIds = [...new Set(passes.map((p) => p.contestantId).filter(Boolean))];
     const [members, contestants] = await Promise.all([
-        identities && memberIds.length ? prisma.member.findMany({ where: { id: { in: memberIds } }, select: { id: true, name: true, email: true } }) : [],
+        identities && memberIds.length ? prisma.member.findMany({ where: { id: { in: memberIds } }, select: { id: true, name: true, email: true, lastSignInWith: true } }) : [],
         contestantIds.length ? prisma.contestant.findMany({ where: { id: { in: contestantIds } }, select: { id: true, fullName: true, number: true } }) : [],
     ]);
     const people = new Map(members.map((m) => [m.id, m]));
@@ -212,7 +212,9 @@ export const listPasses = async (campaignId, { identities }) => {
         return {
             id: p.id,
             memberId: p.memberId,
-            voter: { voterRef: p.memberId.slice(-6).toUpperCase(), ...(identities && person ? { name: person.name, email: person.email ?? '' } : {}) },
+            voter: { voterRef: p.memberId.slice(-6).toUpperCase(), ...(identities && person ? { name: person.name, email: person.email ?? '', signsInWith: person.lastSignInWith ?? null } : {}) },
+            // The voter's event ticket: for the roles that see who they are.
+            ...(identities ? { ticketCode: p.ticketCode } : {}),
             contestantName: c?.fullName ?? null,
             contestantNumber: c?.number ?? null,
             dailyVotes: p.dailyVotes,

@@ -2,6 +2,7 @@ import * as campaigns from '../../../services/voting/campaigns.mjs';
 import * as contestants from '../../../services/voting/contestants.mjs';
 import * as audit from '../../../services/voting/audit.mjs';
 import * as vipCredits from '../../../services/voting/vipCredits.mjs';
+import { emailVipNow } from '../../../services/voting/vipEmail.mjs';
 import { roleAllows } from '../../../utils/permissions.mjs';
 
 /** Studio › Voting (admin realm): every campaign, drafts included, and its contestants. */
@@ -73,4 +74,9 @@ export const voteLedger = async (req, res) => {
 export const vipPasses = async (req, res) => {
     const identities = roleAllows(req.admin.role, ['moderator']);
     res.json({ data: await vipCredits.listPasses(req.params.id, { identities }), meta: { identities } });
+};
+
+/** POST /voting/studio/vip-passes/:id/email { note? }: the voter's VIP pass by email, with a note from the team. */
+export const emailVipPass = async (req, res) => {
+    res.json({ data: await emailVipNow(req.params.id, req.body, req.admin) });
 };
