@@ -34,7 +34,8 @@ const question = z
     .object({
         id: key.optional(),
         label: text(80).pipe(z.string().min(1, 'Give each question a label.')),
-        kind: z.enum(['text', 'choice']),
+        // agree: a tick, e.g. a guardian's consent; its answer is "Yes".
+        kind: z.enum(['text', 'choice', 'agree']),
         options: z.array(text(40).pipe(z.string().min(1))).max(10).optional(),
         required: z.boolean().default(false),
     })
@@ -48,6 +49,8 @@ const eventFields = {
     description: text(3000).pipe(z.string().min(1, 'Say what the ticket is for.')),
     image: imageField('The image'),
     startsAt: when,
+    // For an event over several days; after startsAt (checked with the stored event on an update).
+    endsAt: when,
     venue: text(200),
     status: z.enum(STATUSES, { error: 'Choose Draft, On sale or Closed.' }),
     organizer: text(80),
@@ -63,6 +66,7 @@ export const createEventBody = z.object({
     ...eventFields,
     image: eventFields.image.default(''),
     startsAt: eventFields.startsAt.default(null),
+    endsAt: eventFields.endsAt.default(null),
     venue: eventFields.venue.default(''),
     status: eventFields.status.default('Draft'),
     organizer: eventFields.organizer.default(''),

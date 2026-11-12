@@ -54,6 +54,7 @@ const base = (e) => ({
     description: e.description,
     image: e.image,
     startsAt: iso(e.startsAt),
+    endsAt: iso(e.endsAt),
     venue: e.venue,
     organizer: e.organizer,
     category: e.category,
@@ -134,6 +135,13 @@ const changed = (id) => invalidateSite('tickets', { id });
 const newKey = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 const toDate = (v) => (v ? new Date(v) : null);
 
+/** An end needs a start and comes after it. */
+const checkEnd = ({ startsAt, endsAt }) => {
+    if (!endsAt) return;
+    if (!startsAt) throw fieldError('endsAt', 'Add when it starts first.');
+    if (new Date(endsAt) <= new Date(startsAt)) throw fieldError('endsAt', 'It must end after it starts.');
+};
+
 /** Questions keep the ids the Studio gave them, so answers stay matched up; new ones get one. */
 const toQuestions = (questions) => {
     const seen = new Set();
@@ -189,8 +197,9 @@ const saveTypes = async (eventId, sent) => {
 const slugOf = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'ticket';
 
 export const createEvent = async ({ types, questions, ...input }, by) => {
+    checkEnd(input);
     await storeImages(input, ['image']);
-    const data = { ...input, startsAt: toDate(input.startsAt), questions: toQuestions(questions) };
+    const data = { ...input, startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt), questions: toQuestions(questions) };
     let event = null;
     for (let n = 1; n < 50 && !event; n += 1) {
         const id = `tkt_${slugOf(input.title)}${n === 1 ? '' : `-${n}`}`;
@@ -210,9 +219,15 @@ export const createEvent = async ({ types, questions, ...input }, by) => {
 export const updateEvent = async (id, { types, questions, ...patch }, by) => {
     const current = await getEvent(id);
     const before = auditView(current, await typesOf([id]));
+    checkEnd({ startsAt: 'startsAt' in patch ? patch.startsAt : current.startsAt, endsAt: 'endsAt' in patch ? patch.endsAt : current.endsAt });
     await storeImages(patch, ['image']);
     if (types) await saveTypes(id, types);
-    const data = { ...patch, ...('startsAt' in patch ? { startsAt: toDate(patch.startsAt) } : {}), ...(questions ? { questions: toQuestions(questions) } : {}) };
+    const data = {
+        ...patch,
+        ...('startsAt' in patch ? { startsAt: toDate(patch.startsAt) } : {}),
+        ...('endsAt' in patch ? { endsAt: toDate(patch.endsAt) } : {}),
+        ...(questions ? { questions: toQuestions(questions) } : {}),
+    };
     const event = await prisma.ticketEvent.update({ where: { id }, data });
     if (current.image !== event.image) dropFiles([current.image]);
     recordChange(by, 'ticket-event', id, before, auditView(event, await typesOf([id])));

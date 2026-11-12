@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { imageField, text } from './common.mjs';
+import { key as ticketKey } from './tickets.mjs';
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-11-30.');
 
@@ -14,6 +15,12 @@ const articleFields = {
     endDate: z.union([z.literal(''), day]),
     image: imageField('The image'),
     status: z.enum(['Published', 'Draft'], { error: 'Choose Published or Draft.' }),
+    // Events only (kept null for any other category): the ticket sold for it, and a link to pay for it elsewhere.
+    ticketEventId: ticketKey.nullable(),
+    paymentUrl: z
+        .union([z.literal(''), z.string().trim().max(500, 'Keep the link under 500 characters.').regex(/^https:\/\/[^\s]+$/, 'Use an https:// link.')])
+        .nullable()
+        .transform((v) => v || null),
 };
 
 /** POST content/news */
@@ -25,6 +32,8 @@ export const createArticleBody = z.object({
     endDate: articleFields.endDate.default(''),
     image: articleFields.image.default(''),
     status: articleFields.status.default('Draft'),
+    ticketEventId: articleFields.ticketEventId.default(null),
+    paymentUrl: articleFields.paymentUrl.default(null),
 });
 
 /** PATCH content/news/:id. Unknown fields are dropped. */

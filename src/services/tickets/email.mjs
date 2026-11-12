@@ -2,6 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { env } from '../../env.mjs';
 import { isMailConfigured, sendMail } from '../emails/zohoMail.js';
 import { ticketsPdf } from './pdf.mjs';
+import { whenOf } from './when.mjs';
 
 /**
  * The buyer's tickets by email: the event, the order reference, what was
@@ -14,11 +15,10 @@ import { ticketsPdf } from './pdf.mjs';
 
 const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const money = (ugx) => `UGX ${ugx.toLocaleString('en')}`;
-const when = (d) => (d ? new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Kampala', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 
 const message = ({ event, tickets, buyerName, reference, totalUGX, complimentary }) => {
     const page = `${env.APP_URL}/tickets/${encodeURIComponent(event.id)}`;
-    const details = [when(event.startsAt), event.venue].filter(Boolean).join(' · ');
+    const details = [whenOf(event.startsAt, event.endsAt), event.venue].filter(Boolean).join(' · ');
     const paid = complimentary ? 'Complimentary' : totalUGX ? `Paid ${money(totalUGX)}` : 'Free';
     const lines = tickets.map((t) => `${t.code}  ${t.typeName}`);
     const text = [

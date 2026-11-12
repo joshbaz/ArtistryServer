@@ -42,6 +42,7 @@ export const priceTicketOrder = async ({ eventId, items, answers = {} }) => {
         if (q.required && !a) throw new AppError(`Please answer: ${q.label}`, 422);
         if (a.length > 120) throw new AppError(`Keep the answer to "${q.label}" under 120 characters.`, 422);
         if (a && q.kind === 'choice' && !q.options?.includes(a)) throw new AppError(`Choose one of the options for: ${q.label}`, 422);
+        if (a && q.kind === 'agree' && a !== 'Yes') throw new AppError(`Please tick: ${q.label}`, 422);
         if (a) kept[q.id] = a;
     }
     return { event, priced, count, amountUGX: priced.reduce((sum, i) => sum + i.qty * i.priceUGX, 0), answers: kept };

@@ -661,7 +661,7 @@ paths:
       tags: [Website]
       summary: Published news and events, newest first (the home strip)
       responses:
-        '200': { description: '[{ id, title, description, content, location, category, date, endDate, image }]' }
+        '200': { description: '[{ id, title, description, content, location, category, date, endDate, image, ticketEventId, paymentUrl }]. ticketEventId is null unless its ticket exists and is not a Draft' }
   /content/events/{id}:
     get:
       tags: [Website]
@@ -681,10 +681,11 @@ paths:
       tags: [Website]
       summary: Add an article (Content Manager)
       security: [{ bearer: [] }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title, category, date], properties: { title: { type: string }, excerpt: { type: string }, content: { type: string }, location: { type: string }, category: { type: string }, date: { type: string, example: '2026-11-30' }, endDate: { type: string }, image: { type: string }, status: { type: string, enum: [Published, Draft] } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title, category, date], properties: { title: { type: string }, excerpt: { type: string }, content: { type: string }, location: { type: string }, category: { type: string }, date: { type: string, example: '2026-11-30' }, endDate: { type: string }, image: { type: string, description: 'Image data (stored in Spaces, the CDN link is kept) or an https link' }, status: { type: string, enum: [Published, Draft] }, ticketEventId: { type: string, nullable: true, description: 'Events only: the ticket sold for it (one article per ticket)' }, paymentUrl: { type: string, nullable: true, description: 'Events only: an https link to pay for it outside the ticket system' } } } } } }
       responses:
         '201': { description: The article }
-        '422': { description: 'Bad field, or endDate before date' }
+        '409': { description: 'ticket_linked: that ticket is linked to another article' }
+        '422': { description: 'Bad field, endDate before date, or an unknown ticket' }
   /content/news/{id}:
     patch:
       tags: [Website]

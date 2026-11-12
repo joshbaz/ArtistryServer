@@ -458,10 +458,14 @@ model Article {
   image     String   @default("")
   // Published | Draft
   status    String   @default("Draft")
+  // Events only: the ticket sold for it (one article per ticket) and an https link to pay for it elsewhere.
+  ticketEventId String?
+  paymentUrl    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status, date])
+  @@index([ticketEventId])
 }
 
 // A /gallery photo. "Alumni" ones fill the alumni slider, the rest the grid.
@@ -902,6 +906,8 @@ model TicketEvent {
   description String    @default("")
   image       String    @default("")
   startsAt    DateTime?
+  // The last day and time, for an event over several days (after startsAt); null: not given.
+  endsAt      DateTime?
   venue       String    @default("")
   // Draft | On sale | Closed
   status      String    @default("Draft")
@@ -911,7 +917,7 @@ model TicketEvent {
   // Most tickets in one order (1 to 20); null: 10.
   maxPerOrder Int?
   terms       String    @default("")
-  // Asked once per order: [{ id, label, kind: text | choice, options?, required }]
+  // Asked once per order: [{ id, label, kind: text | choice | agree, options?, required }]
   questions   Json      @default("[]")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

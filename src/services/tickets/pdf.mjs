@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import { whenOf } from './when.mjs';
 
 /**
  * The buyer's tickets as a PDF (docs/20, section 10): one phone-sized page
@@ -18,7 +19,6 @@ const INK = '#111111';
 const MUTED = '#666666';
 const BRAND = '#e8590c';
 
-const when = (d) => (d ? new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Kampala', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 const money = (ugx) => `UGX ${ugx.toLocaleString('en')}`;
 // Helvetica can't draw these; drop them rather than print boxes.
 const latin = (s) => String(s ?? '').replace(/[^\u0000-ÿ–—‘’“”•…]/g, '');
@@ -27,7 +27,7 @@ const header = (doc, event) => {
     doc.rect(0, 0, W, 6).fill(BRAND);
     doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(8).text('THE ARTISTRY360 · TICKET', M, M, { characterSpacing: 1.5 });
     doc.moveDown(0.6).fillColor(INK).font('Helvetica-Bold').fontSize(18).text(latin(event.title), { width: W - 2 * M });
-    const details = [when(event.startsAt), latin(event.venue)].filter(Boolean);
+    const details = [whenOf(event.startsAt, event.endsAt), latin(event.venue)].filter(Boolean);
     if (details.length) doc.moveDown(0.3).font('Helvetica').fontSize(10).fillColor(MUTED).text(details.join('\n'), { width: W - 2 * M });
     if (event.organizer) doc.moveDown(0.2).fontSize(9).text(`By ${latin(event.organizer)}`, { width: W - 2 * M });
 };
