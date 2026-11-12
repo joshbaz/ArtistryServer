@@ -3,6 +3,7 @@ import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
 import { recordChange } from '../system/audit.mjs';
 import { dropFiles, storeImages } from '../streaming/media.mjs';
+import { badCode, codeFor, codesOf, guardTries, planCodes, releaseCode, studioCode, takeCode } from './accessCodes.mjs';
 
 /**
  * Tickets the Studio posts (Website › Tickets) and the pages that sell them
@@ -13,6 +14,10 @@ import { dropFiles, storeImages } from '../streaming/media.mjs';
  * ever changed by reserveSeats and releaseSeats, which compare-and-set it:
  * two buyers can never both get the last seat, and `taken` never passes
  * `seats`.
+ *
+ * A restricted type is sold only with one of its access codes
+ * (accessCodes.mjs); the public sees `locked: true` and nothing else about
+ * them.
  */
 
 export const DEFAULT_MAX_PER_ORDER = 10;
@@ -37,7 +42,7 @@ const soldCounts = async (eventIds) => {
     return new Map(rows.map((r) => [`${r.eventId}|${r.typeKey}`, r._count._all]));
 };
 
-const studioType = (t, sold) => ({
+const studioType = (t, sold, codes = []) => ({
     id: t.key,
     name: t.name,
     priceUGX: t.priceUGX,
@@ -46,6 +51,8 @@ const studioType = (t, sold) => ({
     perk: t.perk,
     onSaleFrom: iso(t.onSaleFrom),
     onSaleUntil: iso(t.onSaleUntil),
+    restricted: t.restricted ?? false,
+    accessCodes: codes.map(studioCode),
 });
 
 const base = (e) => ({
@@ -64,11 +71,11 @@ const base = (e) => ({
 });
 
 /** As the Studio reads it: every field, and how many of each type are sold. */
-const toStudio = (e, types, sold) => ({
+const toStudio = (e, types, sold, codes = new Map()) => ({
     ...base(e),
     maxPerOrder: e.maxPerOrder ?? null,
     status: e.status,
-    types: types.map((t) => studioType(t, sold.get(`${e.id}|${t.key}`) ?? 0)),
+    types: types.map((t) => studioType(t, sold.get(`${e.id}|${t.key}`) ?? 0, codes.get(`${e.id}|${t.key}`))),
     createdAt: iso(e.createdAt),
 });
 
@@ -76,10 +83,13 @@ const toStudio = (e, types, sold) => ({
 const toPublic = (e, types, now = Date.now()) => {
     const shown = types.map((t) => {
         const seatsLeft = Math.max(0, t.seats - t.taken);
-        return { id: t.key, name: t.name, priceUGX: t.priceUGX, perk: t.perk, seatsLeft, soldOut: seatsLeft === 0, window: windowOf(t, now), onSaleFrom: iso(t.onSaleFrom), onSaleUntil: iso(t.onSaleUntil) };
+        return { id: t.key, name: t.name, priceUGX: t.priceUGX, perk: t.perk, seatsLeft, soldOut: seatsLeft === 0, window: windowOf(t, now), onSaleFrom: iso(t.onSaleFrom), onSaleUntil: iso(t.onSaleUntil), ...(t.restricted ? { locked: true } : {}) };
     });
-    const buyable = shown.filter((t) => t.window === 'open' && !t.soldOut);
-    const prices = (buyable.length ? buyable : shown).map((t) => t.priceUGX);
+    // "From": the cheapest a visitor can buy without a code (any type, if every one needs a code).
+    const open = shown.filter((t) => !t.locked);
+    const pool = open.length ? open : shown;
+    const buyable = pool.filter((t) => t.window === 'open' && !t.soldOut);
+    const prices = (buyable.length ? buyable : pool).map((t) => t.priceUGX);
     return {
         ...base(e),
         status: e.status,
@@ -117,12 +127,15 @@ export const getPublicEvent = async (id) => {
 export const listEvents = async () => {
     const events = await prisma.ticketEvent.findMany({ orderBy: { createdAt: 'desc' } });
     const ids = events.map((e) => e.id);
-    const [types, sold] = await Promise.all([typesOf(ids), soldCounts(ids)]);
+    const [types, sold, codes] = await Promise.all([typesOf(ids), soldCounts(ids), codesOf(ids)]);
     const grouped = byEvent(types);
-    return events.map((e) => toStudio(e, grouped.get(e.id) ?? [], sold));
+    return events.map((e) => toStudio(e, grouped.get(e.id) ?? [], sold, codes));
 };
 
-const studioView = async (e) => toStudio(e, await typesOf([e.id]), await soldCounts([e.id]));
+const studioView = async (e) => {
+    const [types, sold, codes] = await Promise.all([typesOf([e.id]), soldCounts([e.id]), codesOf([e.id])]);
+    return toStudio(e, types, sold, codes);
+};
 
 export const getEvent = async (id) => {
     const e = await prisma.ticketEvent.findUnique({ where: { id } });
@@ -153,8 +166,18 @@ const toQuestions = (questions) => {
     });
 };
 
-/** What the audit log keeps for an event: what changes money and seats. */
-const auditView = (e, types) => ({ status: e.status, types: types.map((t) => ({ id: t.key, name: t.name, priceUGX: t.priceUGX, seats: t.seats })) });
+/** What the audit log keeps for an event: what changes money and seats, and who has which access code. */
+const auditView = (e, types, codes = new Map()) => ({
+    status: e.status,
+    types: types.map((t) => ({
+        id: t.key,
+        name: t.name,
+        priceUGX: t.priceUGX,
+        seats: t.seats,
+        ...(t.restricted || codes.get(`${e.id}|${t.key}`)?.length ? { restricted: t.restricted, codes: (codes.get(`${e.id}|${t.key}`) ?? []).map((c) => ({ code: c.code, label: c.label, maxUses: c.maxUses })) } : {}),
+    })),
+});
+const auditNow = async (e) => auditView(e, await typesOf([e.id]), await codesOf([e.id]));
 
 /**
  * The event's types as sent (the whole list): each one updated, added, or
@@ -179,9 +202,10 @@ const saveTypes = async (eventId, sent) => {
     const removed = current.filter((t) => !keys.has(t.key));
     const busy = removed.find((t) => t.taken > 0);
     if (busy) throw new AppError(`${busy.name} has sold tickets, so it can't be removed. Set its seats to what's sold instead.`, 409, { code: 'type_has_sales' });
+    const saveCodes = await planCodes(eventId, rows);
 
     for (const t of rows) {
-        const data = { name: t.name, priceUGX: t.priceUGX, seats: t.seats, perk: t.perk ?? '', onSaleFrom: toDate(t.onSaleFrom), onSaleUntil: toDate(t.onSaleUntil), position: t.position };
+        const data = { name: t.name, priceUGX: t.priceUGX, seats: t.seats, perk: t.perk ?? '', onSaleFrom: toDate(t.onSaleFrom), onSaleUntil: toDate(t.onSaleUntil), position: t.position, ...(t.restricted !== undefined ? { restricted: t.restricted } : {}) };
         const old = byKey.get(t.key);
         if (old) {
             // Seats only if nothing was taken since they were checked above.
@@ -192,6 +216,7 @@ const saveTypes = async (eventId, sent) => {
         }
     }
     if (removed.length) await prisma.ticketType.deleteMany({ where: { id: { in: removed.map((t) => t.id) }, taken: 0 } });
+    await saveCodes();
 };
 
 const slugOf = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'ticket';
@@ -211,14 +236,14 @@ export const createEvent = async ({ types, questions, ...input }, by) => {
     if (!event) throw new AppError('Give the ticket a different title.', 409);
     await saveTypes(event.id, types);
     const view = await studioView(event);
-    recordChange(by, 'ticket-event', event.id, null, auditView(event, await typesOf([event.id])));
+    recordChange(by, 'ticket-event', event.id, null, await auditNow(event));
     changed(event.id);
     return view;
 };
 
 export const updateEvent = async (id, { types, questions, ...patch }, by) => {
     const current = await getEvent(id);
-    const before = auditView(current, await typesOf([id]));
+    const before = await auditNow(current);
     checkEnd({ startsAt: 'startsAt' in patch ? patch.startsAt : current.startsAt, endsAt: 'endsAt' in patch ? patch.endsAt : current.endsAt });
     await storeImages(patch, ['image']);
     if (types) await saveTypes(id, types);
@@ -230,7 +255,7 @@ export const updateEvent = async (id, { types, questions, ...patch }, by) => {
     };
     const event = await prisma.ticketEvent.update({ where: { id }, data });
     if (current.image !== event.image) dropFiles([current.image]);
-    recordChange(by, 'ticket-event', id, before, auditView(event, await typesOf([id])));
+    recordChange(by, 'ticket-event', id, before, await auditNow(event));
     changed(id);
     return studioView(event);
 };
@@ -240,13 +265,15 @@ export const deleteEvent = async (id, by) => {
     const current = await prisma.ticketEvent.findUnique({ where: { id } });
     if (!current) return;
     const types = await typesOf([id]);
+    const codes = await codesOf([id]);
     if ((await prisma.ticket.count({ where: { eventId: id } })) || types.some((t) => t.taken > 0)) {
         throw new AppError('Tickets were sold for this. Close it instead of deleting it.', 409, { code: 'has_sales' });
     }
+    await prisma.ticketAccessCode.deleteMany({ where: { eventId: id } });
     await prisma.ticketType.deleteMany({ where: { eventId: id } });
     await prisma.ticketEvent.delete({ where: { id } });
     dropFiles([current.image]);
-    recordChange(by, 'ticket-event', id, auditView(current, types), null);
+    recordChange(by, 'ticket-event', id, auditView(current, types, codes), null);
     changed(id);
 };
 
@@ -255,10 +282,12 @@ export const deleteEvent = async (id, by) => {
 const soldOut = (name) => new AppError(`${name} tickets are sold out or have too few left.`, 409, { code: 'sold_out' });
 
 /**
- * Takes `qty` seats of each type, all or nothing: → the types, as they were.
- * Each take is a compare-and-set on `taken`, retried a few times when
- * another buyer got in between, so the last seat goes to exactly one.
- * @param {{ typeId: string, qty: number }[]} items
+ * Takes `qty` seats of each type, all or nothing, and for an item bought
+ * with an access code, `qty` of the code's uses too (a used-up code is the
+ * usual `422 bad_code`). Each take is a compare-and-set, retried a few times
+ * when another buyer got in between, so the last seat (or use) goes to
+ * exactly one.
+ * @param {{ typeId: string, qty: number, accessCode?: string }[]} items
  */
 export const reserveSeats = async (eventId, items, db = prisma) => {
     const done = [];
@@ -274,6 +303,14 @@ export const reserveSeats = async (eventId, items, db = prisma) => {
                 taken = count === 1;
             }
             if (!taken) throw soldOut(type.name);
+            if (item.accessCode) {
+                try {
+                    await takeCode(eventId, item.typeId, item.accessCode, item.qty, db);
+                } catch (error) {
+                    await releaseSeats(eventId, [{ typeId: item.typeId, qty: item.qty }], db);
+                    throw error;
+                }
+            }
             done.push(item);
         }
     } catch (error) {
@@ -282,12 +319,32 @@ export const reserveSeats = async (eventId, items, db = prisma) => {
     }
 };
 
-/** Gives seats back (a failed or expired checkout, a void ticket). */
+/** Gives seats back, and the code's uses for an item bought with one (a failed or expired checkout, a void ticket). */
 export const releaseSeats = async (eventId, items, db = prisma) => {
     for (const item of items) {
         await db.ticketType.updateMany({ where: { eventId, key: item.typeId, taken: { gte: item.qty } }, data: { taken: { decrement: item.qty } } });
+        if (item.accessCode) await releaseCode(eventId, item.accessCode, item.qty, db);
     }
 };
+
+/**
+ * The buyer's screen checks a code before paying, so the type unlocks:
+ * → how many tickets it still covers. Uses nothing up; the order checks it
+ * again. Every failure is the same 422, counted against the IP.
+ */
+export const unlockType = (eventId, { typeId, code }, ip) =>
+    guardTries(
+        ip,
+        async () => {
+            const e = await prisma.ticketEvent.findUnique({ where: { id: eventId } });
+            if (!e || e.status !== 'On sale') throw badCode();
+            const type = await prisma.ticketType.findUnique({ where: { eventId_key: { eventId, key: typeId } } });
+            if (!type?.restricted) throw badCode();
+            const row = await codeFor(eventId, typeId, code);
+            return { remaining: row.maxUses - row.used };
+        },
+        `unlock ${eventId}/${typeId}`,
+    );
 
 /** The event and its types as stored, for pricing an order. */
 export const eventForSale = async (id) => {

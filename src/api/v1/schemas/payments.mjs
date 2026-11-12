@@ -23,7 +23,7 @@ export const createOrderBody = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('ticket'),
         eventId: key,
-        items: z.array(z.object({ ticketTypeId: key, qty: z.coerce.number().int('Whole tickets only.').min(0).max(20) })).min(1).max(20),
+        items: z.array(z.object({ ticketTypeId: key, qty: z.coerce.number().int('Whole tickets only.').min(0).max(20), accessCode: z.string().trim().max(40).optional() })).min(1).max(20),
         buyer: z.object({
             name: text(80).pipe(z.string().min(2, 'Enter your name.')),
             email: z.email('Check your email address.').max(200),

@@ -86,6 +86,8 @@ export const statusReason = (o) => {
                 return "PesaPal couldn't be reached when the checkout opened.";
             case 'seats_gone':
                 return 'Paid after the seats were sold, so no tickets were issued. Refund it in PesaPal.';
+            case 'code_gone':
+                return 'Paid after its access code was used up, so no tickets were issued. Refund it in PesaPal.';
             default:
                 return o.pesapalNote ? `PesaPal: ${o.pesapalNote}` : 'PesaPal said the payment failed.';
         }
@@ -323,7 +325,7 @@ const settle = async (order) => {
                 notifyStaff('ticket-refund', {
                     subject: `Refund a ticket payment: ${order.reference}`,
                     heading: 'A ticket payment arrived after its seats were sold',
-                    lines: [`Order ${order.reference} (${order.itemName ?? 'tickets'}) was paid, but the seats had gone by then, so no tickets were issued. Refund it in PesaPal.`],
+                    lines: [`Order ${order.reference} (${order.itemName ?? 'tickets'}) was paid, but the seats${order.ticketItems?.some?.((i) => i.accessCode) ? ' or its access code' : ''} had gone by then, so no tickets were issued. Refund it in PesaPal.`],
                     path: '/studio/tickets',
                 });
             }

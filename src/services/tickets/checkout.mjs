@@ -2,6 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { eventForSale, maxPerOrderOf, releaseSeats, reserveSeats, windowOf } from './events.mjs';
 import { issueTickets } from './tickets.mjs';
+import { badCode, codeFor, normalizeCode } from './accessCodes.mjs';
 
 /**
  * Buying tickets (docs/20, sections 4 and 9), the parts payments/orders.mjs
@@ -22,19 +23,28 @@ export const priceTicketOrder = async ({ eventId, items, answers = {} }) => {
     if (event.status !== 'On sale') throw new AppError('Tickets for this are not on sale.', 409, { code: 'not_on_sale' });
 
     const qty = new Map();
-    for (const i of items) qty.set(i.ticketTypeId, (qty.get(i.ticketTypeId) ?? 0) + i.qty);
+    const codes = new Map();
+    for (const i of items) {
+        qty.set(i.ticketTypeId, (qty.get(i.ticketTypeId) ?? 0) + i.qty);
+        // One code per type in an order.
+        if (i.accessCode && codes.has(i.ticketTypeId) && normalizeCode(codes.get(i.ticketTypeId)) !== normalizeCode(i.accessCode)) throw badCode();
+        if (i.accessCode) codes.set(i.ticketTypeId, i.accessCode);
+    }
     const count = [...qty.values()].reduce((n, q) => n + q, 0);
     const limit = maxPerOrderOf(event);
     if (count < 1) throw new AppError('Choose at least one ticket.', 422);
     if (count > limit) throw new AppError(`You can buy up to ${limit} tickets at a time.`, 422);
 
     const now = Date.now();
-    const priced = [...qty].map(([typeId, n]) => {
+    const priced = [];
+    for (const [typeId, n] of qty) {
         const type = types.find((t) => t.key === typeId);
         if (!type) throw new AppError('That ticket type is not available.', 422);
         if (windowOf(type, now) !== 'open') throw new AppError(`${type.name} tickets are not on sale right now.`, 409, { code: 'not_open' });
-        return { typeId, name: type.name, qty: n, priceUGX: type.priceUGX };
-    });
+        // A restricted type needs a code for it with room for these tickets (taken for real with the seats).
+        const code = type.restricted ? (await codeFor(event.id, typeId, codes.get(typeId), n)).code : null;
+        priced.push({ typeId, name: type.name, qty: n, priceUGX: type.priceUGX, ...(code ? { accessCode: code } : {}) });
+    }
 
     const kept = {};
     for (const q of event.questions ?? []) {
@@ -76,8 +86,8 @@ export const fulfil = async (tx, order) => {
         try {
             await reserveSeats(order.ticketEventId, order.ticketItems, tx);
         } catch (error) {
-            if (error.code !== 'sold_out') throw error;
-            await tx.paymentOrder.update({ where: { id: order.id }, data: { status: 'failed', statusNote: 'seats_gone' } });
+            if (error.code !== 'sold_out' && error.code !== 'bad_code') throw error;
+            await tx.paymentOrder.update({ where: { id: order.id }, data: { status: 'failed', statusNote: error.code === 'bad_code' ? 'code_gone' : 'seats_gone' } });
             return null;
         }
     }
@@ -94,11 +104,14 @@ export const fulfil = async (tx, order) => {
 
 /** A reversed payment: its tickets are void and their seats free again. → how many. */
 export const voidOrderTickets = async (tx, order) => {
-    const tickets = await tx.ticket.findMany({ where: { orderId: order.id, status: { in: ['valid', 'used'] } }, select: { id: true, typeKey: true } });
+    const tickets = await tx.ticket.findMany({ where: { orderId: order.id, status: { in: ['valid', 'used'] } }, select: { id: true, typeKey: true, accessCode: true } });
     if (!tickets.length) return 0;
     await tx.ticket.updateMany({ where: { id: { in: tickets.map((t) => t.id) } }, data: { status: 'void' } });
     const byType = new Map();
-    for (const t of tickets) byType.set(t.typeKey, (byType.get(t.typeKey) ?? 0) + 1);
-    await releaseSeats(order.ticketEventId, [...byType].map(([typeId, qty]) => ({ typeId, qty })), tx);
+    for (const t of tickets) {
+        const k = `${t.typeKey}|${t.accessCode ?? ''}`;
+        byType.set(k, { typeId: t.typeKey, qty: (byType.get(k)?.qty ?? 0) + 1, ...(t.accessCode ? { accessCode: t.accessCode } : {}) });
+    }
+    await releaseSeats(order.ticketEventId, [...byType.values()], tx);
     return tickets.length;
 };

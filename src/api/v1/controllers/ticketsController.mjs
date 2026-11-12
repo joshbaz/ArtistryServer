@@ -15,6 +15,7 @@ const noStore = (res) => res.set('Cache-Control', 'no-store');
 /* Public */
 export const listOnSale = async (req, res) => res.json({ data: await events.listOnSale() });
 export const getPublicEvent = async (req, res) => res.json({ data: await events.getPublicEvent(req.params.id) });
+export const unlock = async (req, res) => noStore(res).json({ data: await events.unlockType(req.params.id, req.body, req.ip) });
 
 /* Studio */
 export const listEvents = async (req, res) => res.json({ data: await events.listEvents() });

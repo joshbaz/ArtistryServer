@@ -18,6 +18,18 @@ export const code = z.string().trim().toUpperCase().pipe(z.string().regex(/^TKT-
 const isoDate = z.iso.datetime({ offset: true, error: 'Use a full date and time.' });
 const when = isoDate.nullable();
 
+/** An access code as buyers may type it: case, spaces and dashes don't matter. */
+export const normalizeCode = (v) => String(v ?? '').toUpperCase().replace(/[\s-]/g, '');
+const codeText = z.string().trim().max(40, 'Keep the code under 40 characters.');
+
+/** A restricted type's code, as the Studio sends it (`used` is the server's count and is ignored). */
+const accessCode = z.object({
+    id: key.optional(),
+    code: codeText.toUpperCase().refine((v) => /^[A-Z0-9]{4,30}$/.test(normalizeCode(v)), 'A code is 4 to 30 letters and numbers (spaces and dashes are fine).'),
+    label: text(60).default(''),
+    maxUses: z.coerce.number().int('Whole tickets only.').min(1, 'A code covers at least 1 ticket.').max(1000, 'A code covers up to 1,000 tickets.'),
+});
+
 const type = z
     .object({
         id: key.optional(),
@@ -27,6 +39,9 @@ const type = z
         perk: text(160).default(''),
         onSaleFrom: when.default(null),
         onSaleUntil: when.default(null),
+        // Left out: kept as it is. accessCodes, when sent, is the type's whole list.
+        restricted: z.boolean().optional(),
+        accessCodes: z.array(accessCode).max(500, 'Up to 500 codes per ticket type.').optional(),
     })
     .refine((t) => !t.onSaleFrom || !t.onSaleUntil || Date.parse(t.onSaleUntil) > Date.parse(t.onSaleFrom), { path: ['onSaleUntil'], message: 'Sales must end after they start.' });
 
@@ -43,6 +58,8 @@ const question = z
     .transform(({ options, ...q }) => (q.kind === 'choice' ? { ...q, options } : q));
 
 const uniqueNames = (types) => new Set(types.map((t) => t.name.toLowerCase())).size === types.length;
+const allCodes = (types) => types.flatMap((t) => (t.accessCodes ?? []).map((c) => normalizeCode(c.code)));
+const uniqueCodes = (types) => new Set(allCodes(types)).size === allCodes(types).length;
 
 const eventFields = {
     title: text(120).pipe(z.string().min(1, 'Give the ticket a title.')),
@@ -57,7 +74,7 @@ const eventFields = {
     category: z.enum(CATEGORIES, { error: 'Choose what kind of event it is.' }),
     maxPerOrder: z.coerce.number().int().min(1, '1 to 20 tickets.').max(20, '1 to 20 tickets.').nullable(),
     terms: text(1000),
-    types: z.array(type).min(1, 'Add at least one ticket type.').max(20).refine(uniqueNames, 'Each ticket type needs its own name.'),
+    types: z.array(type).min(1, 'Add at least one ticket type.').max(20).refine(uniqueNames, 'Each ticket type needs its own name.').refine(uniqueCodes, 'Each access code must be different from every other code on this ticket.'),
     questions: z.array(question).max(8, 'Up to 8 questions.'),
 };
 
@@ -94,6 +111,9 @@ export const issueBody = z.object({
 
 /** PATCH tickets/sales/:code */
 export const voidBody = z.object({ status: z.literal('void', { error: 'A ticket can only be voided here.' }) });
+
+/** POST tickets/events/:id/unlock: does this code open this type? */
+export const unlockBody = z.object({ typeId: key, code: codeText });
 
 /** POST tickets/check-in */
 export const checkInBody = z.object({ code, eventId: key.optional() });

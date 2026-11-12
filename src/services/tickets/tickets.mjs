@@ -47,6 +47,7 @@ export const toSale = (t) => ({
     source: t.source,
     ...(t.source === 'complimentary' ? { note: t.note, issuedBy: t.issuedBy } : {}),
     answers: t.answers ?? {},
+    accessCode: t.accessCode ?? null,
 });
 
 /** What the buyer's page gets for each ticket. */
@@ -60,8 +61,10 @@ export const toIssued = (t) => ({ code: t.code, typeId: t.typeKey, typeName: t.t
 export const issueTickets = async (db, { eventId, items, buyerName, email, orderId = null, orderRef, source = 'purchase', note = '', issuedBy = '', answers = null }) => {
     const count = items.reduce((n, i) => n + i.qty, 0);
     const codes = await freshCodes(count, db);
-    const rows = items.flatMap((i) => Array.from({ length: i.qty }, () => ({ eventId, typeKey: i.typeId, typeName: i.name, buyerName, email, amountUGX: i.priceUGX, orderId, orderRef, source, note, issuedBy, answers: answers ?? undefined, code: codes.pop() })));
+    const rows = items.flatMap((i) => Array.from({ length: i.qty }, () => ({ eventId, typeKey: i.typeId, typeName: i.name, buyerName, email, amountUGX: i.priceUGX, orderId, orderRef, source, note, issuedBy, answers: answers ?? undefined, accessCode: i.accessCode ?? null, code: codes.pop() })));
     await db.ticket.createMany({ data: rows });
+    // Every use of an access code is in the audit log.
+    for (const i of items.filter((x) => x.accessCode)) recordChange(null, 'ticket-code-use', eventId, null, { code: i.accessCode, typeId: i.typeId, qty: i.qty, orderRef });
     return db.ticket.findMany({ where: { code: { in: rows.map((r) => r.code) } }, orderBy: { code: 'asc' } });
 };
 
@@ -134,7 +137,7 @@ export const voidTicket = async (code, by) => {
     if (ticket.status === 'void') return toSale(ticket);
     const { count } = await prisma.ticket.updateMany({ where: { code, status: 'valid' }, data: { status: 'void' } });
     if (!count) return voidTicket(code, by);
-    await releaseSeats(ticket.eventId, [{ typeId: ticket.typeKey, qty: 1 }]);
+    await releaseSeats(ticket.eventId, [{ typeId: ticket.typeKey, qty: 1, ...(ticket.accessCode ? { accessCode: ticket.accessCode } : {}) }]);
     recordChange(by, 'ticket-void', code, { status: ticket.status }, { status: 'void' });
     ticketsChanged(ticket.eventId);
     return toSale({ ...ticket, status: 'void' });

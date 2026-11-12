@@ -940,6 +940,8 @@ model TicketType {
   onSaleFrom  DateTime?
   onSaleUntil DateTime?
   position    Int       @default(0)
+  // Only people with one of its access codes (TicketAccessCode) can buy it.
+  restricted  Boolean   @default(false)
 
   @@unique([eventId, key])
   @@index([eventId])
@@ -969,9 +971,33 @@ model Ticket {
   issuedBy  String    @default("")
   // The order's answers to the event's questions, by question id.
   answers   Json?
+  // The access code it was bought with, for a restricted type (as the Studio wrote it).
+  accessCode String?
   issuedAt  DateTime  @default(now())
 
   @@index([eventId, status])
   @@index([orderId])
   @@index([email, eventId])
+}
+
+// A code that lets its holder buy a restricted ticket type (given to a school or club). `used`
+// counts the tickets bought with it and held by open checkouts, like a type's `taken`, and is only
+// changed by reserveSeats and releaseSeats; it never passes `maxUses`. Never sent to the public.
+model TicketAccessCode {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  eventId   String
+  typeKey   String
+  // The id the Studio uses (ac_x1y2z3).
+  key       String
+  // As the Studio wrote it (ABCD-EFGH), and upper case without spaces or dashes, for matching.
+  code      String
+  norm      String
+  // Who it was given to.
+  label     String   @default("")
+  maxUses   Int
+  used      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, norm])
+  @@index([eventId, typeKey])
 }

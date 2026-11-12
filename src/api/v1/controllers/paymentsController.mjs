@@ -4,6 +4,7 @@ import { ipnFields } from '../schemas/payments.mjs';
 import * as access from '../../../services/streaming/access.mjs';
 import * as charges from '../../../services/payments/charges.mjs';
 import * as maintenance from '../../../services/payments/maintenance.mjs';
+import { guardTries } from '../../../services/tickets/accessCodes.mjs';
 
 /**
  * POST /payments/orders → { reference, redirectUrl }: the page sends the payer to PesaPal.
@@ -19,7 +20,8 @@ export const createOrder = async (req, res) => {
     }
     if (kind === 'ticket') {
         const { eventId, items, buyer, answers } = req.body;
-        res.status(201).json({ data: await orders.createTicketOrder({ eventId, items, buyer, answers }) });
+        // Refused access codes count against the IP here as on the unlock check, so neither can be used to guess them.
+        res.status(201).json({ data: await guardTries(req.ip, () => orders.createTicketOrder({ eventId, items, buyer, answers }), `order ${eventId}`) });
         return;
     }
     const order = kind === 'vip'

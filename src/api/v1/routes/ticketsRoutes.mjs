@@ -18,6 +18,8 @@ const sales = [requireAdmin, allow('content-manager', 'finance')];
 /* Public */
 router.get('/events', controller.listOnSale);
 router.get('/events/:id', event, controller.getPublicEvent);
+// Does an access code open a restricted type? (Refused codes are counted per IP: services/tickets/accessCodes.mjs.)
+router.post('/events/:id/unlock', event, validate(schema.unlockBody), controller.unlock);
 
 /* Studio */
 router.get('/studio/events', requireAdmin, controller.listEvents);
