@@ -1,7 +1,8 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
-import { checkCampaign, MIN_CONTESTANTS, standingsOf, studioView, studioViews } from '../voting/campaigns.mjs';
+import { checkCampaign, IMAGE_FIELDS, MIN_CONTESTANTS, replacedFiles, standingsOf, studioView, studioViews } from '../voting/campaigns.mjs';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 import * as contestants from '../voting/contestants.mjs';
 import { campaignPhase, isDay } from '../voting/phase.mjs';
 import { completedOrdersFor } from '../payments/revenue.mjs';
@@ -70,7 +71,9 @@ export const updateMine = async (organizer, id, patch) => {
         throw new AppError('Voting has opened, so the dates are fixed. Ask The Artistry360 team if they must change.', 409, { code: 'dates_locked' });
     }
     await checkCampaign(patch, { ...current, ...patch }, current);
-    const campaign = await prisma.campaign.update({ where: { id }, data: { ...patch, organizer: organizer.orgName, organizerBadge: 'verified' } });
+    const data = await storeImages({ ...patch, organizer: organizer.orgName, organizerBadge: 'verified' }, IMAGE_FIELDS);
+    const campaign = await prisma.campaign.update({ where: { id }, data });
+    dropFiles(replacedFiles(current, campaign, IMAGE_FIELDS));
     invalidateSite('campaigns', { id });
     return portalView(campaign);
 };

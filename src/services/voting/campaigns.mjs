@@ -4,6 +4,7 @@ import { invalidateSite } from '../../utils/sockets.js';
 import { campaignEndsAt, campaignPhase, campaignStartsAt, isDay } from './phase.mjs';
 import { campaignHasOrders, pendingVotingPayments, revenueByCampaign } from '../payments/revenue.mjs';
 import { recordChange } from '../system/audit.mjs';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 
 /**
  * Voting campaigns (client/docs/10-voting.md). Every figure the clients show
@@ -188,6 +189,7 @@ export const getStats = async () => {
 export const createCampaign = async (data) => {
     const row = { ...data, publishStatus: 'draft' };
     await checkCampaign(row, row);
+    await storeImages(row, IMAGE_FIELDS);
     const campaign = await prisma.campaign.create({ data: row });
     invalidateSite('campaigns', { id: campaign.id });
     return studioView(campaign);
@@ -195,13 +197,21 @@ export const createCampaign = async (data) => {
 
 const pricesOf = (c) => Object.fromEntries(PRICE_FIELDS.map((k) => [k, c[k]]));
 
+/** A campaign's own pictures: uploads go to Spaces and the campaign keeps the link. */
+export const IMAGE_FIELDS = ['image', 'logo'];
+
+/** The files of `before` that `after` no longer uses (a replaced or removed picture). */
+export const replacedFiles = (before, after, fields) => fields.filter((f) => before[f] !== after[f]).map((f) => before[f]);
+
 export const updateCampaign = async (id, patch, by) => {
     const current = await findCampaign(id);
     const next = { ...current, ...patch };
     await checkCampaign(patch, next, current);
     // Publishing by hand also lifts a take-down.
-    const data = patch.publishStatus === 'published' && current.takenDown ? { ...patch, takenDown: null } : patch;
+    const data = patch.publishStatus === 'published' && current.takenDown ? { ...patch, takenDown: null } : { ...patch };
+    await storeImages(data, IMAGE_FIELDS);
     const campaign = await prisma.campaign.update({ where: { id }, data });
+    dropFiles(replacedFiles(current, campaign, IMAGE_FIELDS));
     recordChange(by, 'campaign-price', id, pricesOf(current), pricesOf(campaign));
     invalidateSite('campaigns', { id });
     return studioView(campaign);
@@ -233,13 +243,15 @@ export const restore = async (id) => {
 
 /** Only a campaign nobody has voted in or paid for can be deleted. */
 export const deleteCampaign = async (id) => {
-    await findCampaign(id);
+    const current = await findCampaign(id);
     const voted = await prisma.contestant.count({ where: { campaignId: id, platformVotes: { gt: 0 } } });
     if (voted || (await campaignHasOrders(id))) throw new AppError("This campaign has votes or payments, so it can't be deleted. End it instead.", 409);
+    const photos = await prisma.contestant.findMany({ where: { campaignId: id }, select: { photo: true } });
     await prisma.$transaction([
         prisma.contestant.deleteMany({ where: { campaignId: id } }),
         prisma.campaign.delete({ where: { id } }),
     ]);
+    dropFiles([...IMAGE_FIELDS.map((f) => current[f]), ...photos.map((p) => p.photo)]);
     invalidateSite('campaigns', { id });
 };
 

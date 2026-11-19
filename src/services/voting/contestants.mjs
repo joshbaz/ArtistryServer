@@ -2,6 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidateSite } from '../../utils/sockets.js';
 import { assertCampaign, toContestant } from './campaigns.mjs';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 
 /**
  * A campaign's contestants, edited in the Studio. Their numbers are unique
@@ -33,6 +34,7 @@ export const createContestant = async (campaignId, { number, ...data }) => {
     await assertCampaign(campaignId);
     const last = await prisma.contestant.findFirst({ where: { campaignId }, orderBy: { number: 'desc' }, select: { number: true } });
     const next = number ?? (last?.number ?? 0) + 1;
+    await storeImages(data, ['photo']);
     const row = await saving(next, () => prisma.contestant.create({ data: { ...data, campaignId, number: next } }));
     invalidateSite('campaigns', { id: campaignId });
     return toContestant(row);
@@ -41,7 +43,9 @@ export const createContestant = async (campaignId, { number, ...data }) => {
 export const updateContestant = async (id, patch) => {
     const current = await prisma.contestant.findUnique({ where: { id } });
     if (!current) throw notFound();
-    const row = await saving(patch.number, () => prisma.contestant.update({ where: { id }, data: patch }));
+    const data = await storeImages({ ...patch }, ['photo']);
+    const row = await saving(patch.number, () => prisma.contestant.update({ where: { id }, data }));
+    if (current.photo !== row.photo) dropFiles([current.photo]);
     invalidateSite('campaigns', { id: current.campaignId });
     return toContestant(row);
 };
@@ -52,6 +56,7 @@ export const deleteContestant = async (id) => {
     if (!current) return;
     if (current.importedVotes + current.platformVotes > 0) throw new AppError("This contestant has votes, so they can't be removed.", 409);
     await prisma.contestant.delete({ where: { id } });
+    dropFiles([current.photo]);
     invalidateSite('campaigns', { id: current.campaignId });
 };
 
@@ -65,6 +70,8 @@ export const addContestants = async (campaignId, rows) => {
     await assertCampaign(campaignId);
     const last = await prisma.contestant.findFirst({ where: { campaignId }, orderBy: { number: 'desc' }, select: { number: true } });
     const start = (last?.number ?? 0) + 1;
+    // Uploaded first: a failed upload adds nobody (the rows are all or nothing).
+    rows = await Promise.all(rows.map((row) => storeImages({ ...row }, ['photo'])));
     const created = await saving(start, () =>
         prisma.$transaction(rows.map((row, i) => prisma.contestant.create({ data: { ...row, campaignId, number: start + i } }))),
     );

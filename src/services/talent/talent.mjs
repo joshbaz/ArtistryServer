@@ -3,6 +3,7 @@ import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateSite } from '../../utils/sockets.js';
 import { allDisciplines, getOptionLists } from '../system/options.mjs';
 import { withNextNumber } from '../system/counters.mjs';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 
 /**
  * The talent roster: one list for the Studio and the site. The Studio sees
@@ -48,10 +49,21 @@ const highestTalentNumber = async () => {
 
 /* Studio */
 
+/** Uploads in the photos and project images go to Spaces; the talent keeps the links. */
+const storeTalentImages = async (data) => {
+    await storeImages(data, ['profileImg', 'headerImage']);
+    if (Array.isArray(data.projects)) data.projects = await Promise.all(data.projects.map((p) => storeImages({ ...p }, ['image'])));
+    return data;
+};
+
+/** Every picture a talent holds. */
+const talentFiles = (t) => [t.profileImg, t.headerImage, ...(Array.isArray(t.projects) ? t.projects.map((p) => p?.image) : [])];
+
 export const listTalent = async () => (await prisma.talent.findMany({ orderBy: { talentId: 'asc' } })).map(toTalent);
 
 export const createTalent = async (data) => {
     await checkDiscipline(data.primaryRole);
+    await storeTalentImages(data);
     const row = await withNextNumber('talent', highestTalentNumber, (n) => {
         const talentId = `T-${String(n).padStart(3, '0')}`;
         return prisma.talent.create({ data: { ...data, projects: data.projects ?? [], talentId, slug: talentId.toLowerCase() } });
@@ -61,7 +73,7 @@ export const createTalent = async (data) => {
 };
 
 export const updateTalent = async (slug, patch) => {
-    const current = await prisma.talent.findUnique({ where: { slug }, select: { published: true, shortBio: true } });
+    const current = await prisma.talent.findUnique({ where: { slug }, select: { published: true, shortBio: true, profileImg: true, headerImage: true, projects: true } });
     if (!current) throw notFound();
     await checkDiscipline(patch.primaryRole);
     // Publishing from the list's toggle sends only `published`: the bio checked is the stored one.
@@ -69,7 +81,9 @@ export const updateTalent = async (slug, patch) => {
     if (next.published && next.shortBio.length < 40) {
         throw new AppError('Published talent needs a bio of at least 40 characters.', 422, { details: { fieldErrors: { shortBio: ['Published talent needs a bio of at least 40 characters.'] } } });
     }
-    const row = await prisma.talent.update({ where: { slug }, data: patch });
+    const row = await prisma.talent.update({ where: { slug }, data: await storeTalentImages({ ...patch }) });
+    const kept = new Set(talentFiles(row));
+    dropFiles(talentFiles(current).filter((url) => !kept.has(url)));
     changed(slug);
     return toTalent(row);
 };
@@ -82,6 +96,7 @@ export const deleteTalent = async (slug) => {
         prisma.monologue.deleteMany({ where: { talentId: current.talentId } }),
         prisma.talent.delete({ where: { slug } }),
     ]);
+    dropFiles(talentFiles(current));
     invalidate('admin', ['admin', 'monologues']);
     changed(slug);
 };

@@ -2,6 +2,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateSite } from '../../utils/sockets.js';
 import { getOptionLists } from '../system/options.mjs';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 
 /**
  * The gallery: one list of photos. The Studio edits it; /gallery shows the
@@ -24,21 +25,26 @@ const changed = (id) => {
 export const listPhotos = async () => (await prisma.galleryPhoto.findMany({ orderBy: { createdAt: 'desc' } })).map(toItem);
 
 export const createPhoto = async (data) => {
-    const row = await prisma.galleryPhoto.create({ data });
+    const row = await prisma.galleryPhoto.create({ data: await storeImages({ ...data }, ['image']) });
     changed(row.id);
     return toItem(row);
 };
 
 export const updatePhoto = async (id, patch) => {
-    if (!(await prisma.galleryPhoto.count({ where: { id } }))) throw notFound();
-    const row = await prisma.galleryPhoto.update({ where: { id }, data: patch });
+    const current = await prisma.galleryPhoto.findUnique({ where: { id }, select: { image: true } });
+    if (!current) throw notFound();
+    const row = await prisma.galleryPhoto.update({ where: { id }, data: await storeImages({ ...patch }, ['image']) });
+    if (current.image !== row.image) dropFiles([current.image]);
     changed(id);
     return toItem(row);
 };
 
 export const deletePhoto = async (id) => {
+    const current = await prisma.galleryPhoto.findUnique({ where: { id }, select: { image: true } });
     const { count } = await prisma.galleryPhoto.deleteMany({ where: { id } });
-    if (count) changed(id);
+    if (!count) return;
+    dropFiles([current?.image]);
+    changed(id);
 };
 
 /* Public */

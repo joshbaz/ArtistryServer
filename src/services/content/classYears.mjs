@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { invalidate, invalidateSite } from '../../utils/sockets.js';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 
 /**
  * Class year photos (Studio › Website › Class Photos): one photo per class.
@@ -37,19 +38,26 @@ export const listVisible = async () =>
 export const listAll = async () => (await prisma.classYear.findMany()).sort(byYear).reverse().map(toItem);
 
 export const create = async (data) => {
+    await storeImages(data, ['image']);
     const row = await saving(() => prisma.classYear.create({ data }));
     changed(row.id);
     return toItem(row);
 };
 
 export const update = async (id, patch) => {
-    if (!(await prisma.classYear.count({ where: { id } }))) throw notFound();
-    const row = await saving(() => prisma.classYear.update({ where: { id }, data: patch }));
+    const current = await prisma.classYear.findUnique({ where: { id }, select: { image: true } });
+    if (!current) throw notFound();
+    const data = await storeImages({ ...patch }, ['image']);
+    const row = await saving(() => prisma.classYear.update({ where: { id }, data }));
+    if (current.image !== row.image) dropFiles([current.image]);
     changed(id);
     return toItem(row);
 };
 
 export const remove = async (id) => {
+    const current = await prisma.classYear.findUnique({ where: { id }, select: { image: true } });
     const { count } = await prisma.classYear.deleteMany({ where: { id } });
-    if (count) changed(id);
+    if (!count) return;
+    dropFiles([current?.image]);
+    changed(id);
 };

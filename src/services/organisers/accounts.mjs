@@ -3,6 +3,7 @@ import prisma from '../../utils/db.mjs';
 import { AppError } from '../../utils/AppError.js';
 import { hashToken } from '../../utils/tokens.mjs';
 import { invalidateSite } from '../../utils/sockets.js';
+import { dropFiles, storeImages } from '../streaming/media.mjs';
 import { hashPassword, verifyPassword } from '../auth/passwords.mjs';
 import { refreshSession, revokeAllSessions, startSession } from '../auth/sessions.mjs';
 
@@ -111,7 +112,9 @@ export const refreshOrganizer = async (refreshToken) => {
 
 /** Contact name, phone and logo are theirs to keep current; the organisation's name is the Studio's. */
 export const updateProfile = async (id, patch) => {
-    const row = await prisma.organizer.update({ where: { id }, data: patch });
+    const before = patch.logo !== undefined ? await prisma.organizer.findUnique({ where: { id }, select: { logo: true } }) : null;
+    const row = await prisma.organizer.update({ where: { id }, data: await storeImages({ ...patch }, ['logo']) });
+    if (before && before.logo !== row.logo) dropFiles([before.logo]);
     // A campaign without its own logo shows this one.
     if (patch.logo !== undefined) invalidateSite('campaigns');
     return toProfile(row);
