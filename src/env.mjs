@@ -10,8 +10,13 @@ const envSchema = z.object({
     MEMBER_TOKEN_SECRET: z.string().min(32, "MEMBER_TOKEN_SECRET must be at least 32 characters"),
     ORGANIZER_TOKEN_SECRET: z.string().min(32, "ORGANIZER_TOKEN_SECRET must be at least 32 characters"),
     REDIS_URL: z.string().startsWith("redis", "REDIS_URL must be a Redis connection string"),
-    // Email through Zoho Mail (src/services/emails/zohoMail.js). Leave the user and password out and
-    // nothing is sent. smtp.zoho.com for a personal account, smtppro.zoho.com for a domain account.
+    // Email (src/services/emails/zohoMail.js). ZeptoMail first: its Send Mail token (ZeptoMail, the
+    // Mail Agent, SMTP/API, API) sends over HTTPS, which DigitalOcean doesn't block. The API URL is
+    // api.zeptomail.eu or .in for an account on those data centres.
+    ZEPTOMAIL_TOKEN: z.string().min(1).optional(),
+    ZEPTOMAIL_API_URL: z.url().default("https://api.zeptomail.com/v1.1/email"),
+    // Else Zoho Mail's SMTP (blocked on DigitalOcean Droplets; a paid Mail plan). Leave the user and
+    // password out too and nothing is sent. smtp.zoho.com for a personal account, smtppro.zoho.com for a domain one.
     ZOHO_SMTP_HOST: z.string().default("smtp.zoho.com"),
     ZOHO_SMTP_PORT: z.coerce.number().int().positive().default(465),
     ZOHO_SMTP_USER: z.email().optional(),

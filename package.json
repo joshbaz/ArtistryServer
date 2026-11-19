@@ -18,6 +18,7 @@
     "seed:streaming": "node scripts/seed-streaming.mjs",
     "spaces:setup": "node scripts/spaces-setup.mjs",
     "images:move": "node scripts/move-images.mjs",
+    "mail:test": "node scripts/send-test-email.mjs",
     "payments:pending": "node scripts/check-pending-payments.mjs"
   },
   "author": "Joshua Kimbareeba",
