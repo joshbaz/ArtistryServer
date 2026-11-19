@@ -2,18 +2,24 @@ import nodemailer from 'nodemailer';
 import { env } from '../../env.mjs';
 
 /**
- * Sending email: through ZeptoMail's API when its token is set (HTTPS, so a
- * DigitalOcean Droplet can use it: Droplets block the SMTP ports), else
- * through Zoho Mail's SMTP server. Every email the server sends comes here,
- * so callers never know which one is in use. Sends are fired off the request
- * path by the callers, so a slow or failing send never holds up a request.
+ * Sending email, the first of these that's set up:
+ *   1. ZeptoMail's API (HTTPS, so a DigitalOcean Droplet can use it: Droplets block the SMTP ports).
+ *   2. The site's Netlify mail relay, which sends through Gmail (HTTPS too). Also the fallback when
+ *      ZeptoMail refuses an email (no credits, domain not verified, bad token).
+ *   3. Zoho Mail's SMTP server (for a host that allows SMTP).
+ * Every email the server sends comes here, so callers never know which is in use. Sends are fired off
+ * the request path by the callers, so a slow or failing send never holds up a request.
  */
 
-/** Whether ZeptoMail or a Zoho mailbox is set up. */
-export const isMailConfigured = () => Boolean(env.ZEPTOMAIL_TOKEN || (env.ZOHO_SMTP_USER && env.ZOHO_SMTP_PASSWORD));
+const hasZepto = () => Boolean(env.ZEPTOMAIL_TOKEN);
+const hasRelay = () => Boolean(env.MAIL_RELAY_URL && env.MAIL_RELAY_KEY);
+const hasSmtp = () => Boolean(env.ZOHO_SMTP_USER && env.ZOHO_SMTP_PASSWORD);
 
-/** Which way email goes, for the test script and the logs. */
-export const mailRoute = () => (env.ZEPTOMAIL_TOKEN ? 'zeptomail' : env.ZOHO_SMTP_USER && env.ZOHO_SMTP_PASSWORD ? 'smtp' : 'none');
+/** Whether any way of sending is set up. */
+export const isMailConfigured = () => hasZepto() || hasRelay() || hasSmtp();
+
+/** Which way email goes first, for the test script and the logs. */
+export const mailRoute = () => (hasZepto() ? 'zeptomail' : hasRelay() ? 'relay' : hasSmtp() ? 'smtp' : 'none');
 
 const from = () => env.MAIL_FROM || `The Artistry360 <${env.ZOHO_SMTP_USER}>`;
 
@@ -63,6 +69,36 @@ const sendWithZepto = async ({ to, subject, text, html, attachments }) => {
     return body?.request_id ?? '';
 };
 
+/* Netlify mail relay (Gmail) */
+
+const RELAY_TIMEOUT_MS = 30_000;
+
+const sendWithRelay = async ({ to, subject, text, html, attachments }) => {
+    const replyTo = env.MAIL_REPLY_TO ? parseAddress(env.MAIL_REPLY_TO).address : null;
+    const response = await fetch(env.MAIL_RELAY_URL, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${env.MAIL_RELAY_KEY}` },
+        body: JSON.stringify({
+            to,
+            subject,
+            text,
+            html,
+            // Gmail sends from its own address; the name and the reply address are ours.
+            fromName: parseAddress(from()).name || 'The Artistry360',
+            ...(replyTo ? { replyTo } : {}),
+            ...(attachments?.length ? { attachments: attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, content: Buffer.from(a.content).toString('base64') })) } : {}),
+        }),
+        signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+        const error = new Error(`The mail relay didn't send it (${response.status}): ${body?.error ?? 'no reason given'}`);
+        error.status = response.status;
+        throw error;
+    }
+    return body?.id ?? '';
+};
+
 /* Zoho Mail SMTP */
 
 let transport = null;
@@ -102,7 +138,20 @@ const sendWithSmtp = async ({ to, subject, text, html, attachments }) => {
  * @param {{ to: string, subject: string, text: string, html: string, attachments?: { filename: string, content: Buffer, contentType: string }[] }} email
  * @returns {Promise<string>} the provider's id for it
  */
-export const sendMail = (email) => (env.ZEPTOMAIL_TOKEN ? sendWithZepto(email) : sendWithSmtp(email));
+export const sendMail = async (email) => {
+    if (hasZepto()) {
+        try {
+            return await sendWithZepto(email);
+        } catch (error) {
+            // Only when ZeptoMail answered "no": after a timeout it may have sent it, and the buyer would get two.
+            if (!error.status || !hasRelay()) throw error;
+            console.error(`${error.message}. Sending through the mail relay instead.`);
+            return sendWithRelay(email);
+        }
+    }
+    if (hasRelay()) return sendWithRelay(email);
+    return sendWithSmtp(email);
+};
 
 /** Check the SMTP mailbox can be reached and signed in to (ZeptoMail has no such check: send a test email). */
 export const verifyMail = () => getTransport().verify();
