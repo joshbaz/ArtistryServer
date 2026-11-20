@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.mjs';
 import { env } from '../../env.mjs';
 import { isMailConfigured, sendMail } from '../emails/zohoMail.js';
+import { ticketsChanged } from './events.mjs';
 import { ticketsPdf } from './pdf.mjs';
 import { whenOf } from './when.mjs';
 
@@ -11,6 +12,10 @@ import { whenOf } from './when.mjs';
  * send is tried once more, then logged. If the PDF can't be made the email
  * still goes, with the codes in its body. Everything the buyer or the Studio
  * typed is escaped.
+ *
+ * Every send is recorded on the order's tickets (emailStatus: sending, sent
+ * or failed, when, and why it failed) so the Studio's sales list shows which
+ * buyers have their tickets and which to resend.
  */
 
 const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -55,13 +60,45 @@ const build = async ({ to, ...ticket }) => {
     return mail;
 };
 
-/** Sends now and says how it went (the Studio's Resend). Throws if mail isn't set up or the send fails. */
-export const emailTicketsNow = async (sale) => sendMail(await build(sale));
+/** Write how a send went on every ticket in the order, and refresh the Studio's sales list. Never throws. */
+const record = async (sale, status, { id = null, error = null } = {}) => {
+    try {
+        await prisma.ticket.updateMany({
+            where: { orderRef: sale.reference },
+            data: { emailStatus: status, ...(status === 'sending' ? {} : { emailedAt: new Date(), emailError: error ? String(error).slice(0, 300) : null, emailId: id }) },
+        });
+        ticketsChanged(sale.event.id);
+    } catch (e) {
+        console.error(`Tickets email status for ${sale.reference} not saved:`, e.message);
+    }
+};
 
-/** Never throws; not awaited by the order. */
+/** Sends now and says how it went (the Studio's Resend). Throws if mail isn't set up or the send fails. */
+export const emailTicketsNow = async (sale) => {
+    await record(sale, 'sending');
+    try {
+        const id = await sendMail(await build(sale));
+        await record(sale, 'sent', { id });
+        return id;
+    } catch (error) {
+        await record(sale, 'failed', { error: error.message });
+        throw error;
+    }
+};
+
+/** Never throws; not awaited by the order. A failed send is tried once more after 30 seconds. */
 export const sendTicketsEmail = (sale) => {
-    if (!isMailConfigured() || !sale.to) return;
-    build(sale)
+    if (!sale.to) return;
+    if (!isMailConfigured()) {
+        record(sale, 'failed', { error: "Email wasn't set up on the server." });
+        return;
+    }
+    record(sale, 'sending')
+        .then(() => build(sale))
         .then((mail) => sendMail(mail).catch(() => new Promise((resolve) => setTimeout(resolve, 30_000)).then(() => sendMail(mail))))
-        .catch((error) => console.error(`Tickets email for ${sale.reference} failed:`, error.message));
+        .then((id) => record(sale, 'sent', { id }))
+        .catch((error) => {
+            console.error(`Tickets email for ${sale.reference} failed:`, error.message);
+            return record(sale, 'failed', { error: error.message });
+        });
 };

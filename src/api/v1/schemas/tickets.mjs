@@ -99,6 +99,9 @@ export const updateEventBody = z.object(eventFields).partial();
 export const eventParam = z.object({ id: key });
 export const codeParam = z.object({ code });
 
+/** POST tickets/sales/:code/resend: optionally to a corrected address. */
+export const resendBody = z.object({ to: z.string().trim().max(120).email('Enter a valid email address.').optional() });
+
 /** POST tickets/events/:id/issue: complimentary tickets. issuedBy comes from the session. */
 export const issueBody = z.object({
     typeId: key,

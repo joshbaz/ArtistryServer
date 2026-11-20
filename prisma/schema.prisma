@@ -983,6 +983,14 @@ model Ticket {
   answers   Json?
   // The access code it was bought with, for a restricted type (as the Studio wrote it).
   accessCode String?
+  // The tickets email for this ticket's order (every ticket in it gets the same): sending | sent | failed.
+  // Missing on tickets from before it was recorded. "Sent" is ZeptoMail taking it, not the inbox.
+  emailStatus String?
+  emailedAt   DateTime?
+  // Why the last send failed, in the provider's words (never the email's content).
+  emailError  String?
+  // ZeptoMail's request id for the last send, to match a bounce report to it later.
+  emailId     String?
   issuedAt  DateTime  @default(now())
 
   @@index([eventId, status])

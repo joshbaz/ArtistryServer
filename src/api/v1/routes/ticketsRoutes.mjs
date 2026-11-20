@@ -29,7 +29,7 @@ router.delete('/events/:id', event, ...editor, controller.deleteEvent);
 router.get('/events/:id/sales', event, ...sales, controller.listSales);
 router.post('/events/:id/issue', event, ...editor, validate(schema.issueBody), controller.issue);
 router.patch('/sales/:code', validate(schema.codeParam, 'params'), ...editor, validate(schema.voidBody), controller.voidTicket);
-router.post('/sales/:code/resend', validate(schema.codeParam, 'params'), ...editor, controller.resend);
+router.post('/sales/:code/resend', validate(schema.codeParam, 'params'), ...editor, validate(schema.resendBody), controller.resend);
 
 /* The door: every Studio role */
 router.post('/check-in', requireAdmin, validate(schema.checkInBody), controller.checkIn);

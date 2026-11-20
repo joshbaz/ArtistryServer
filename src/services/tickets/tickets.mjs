@@ -48,6 +48,9 @@ export const toSale = (t) => ({
     ...(t.source === 'complimentary' ? { note: t.note, issuedBy: t.issuedBy } : {}),
     answers: t.answers ?? {},
     accessCode: t.accessCode ?? null,
+    emailStatus: t.emailStatus ?? null,
+    emailedAt: iso(t.emailedAt),
+    emailError: t.emailError || null,
 });
 
 /** What the buyer's page gets for each ticket. */
@@ -106,11 +109,15 @@ export const issueComplimentary = async (eventId, { typeId, qty, name, email, no
 
 /**
  * Emails a ticket's whole order again (every ticket in it that isn't void),
- * with the PDF, to the address it was bought or issued with.
+ * with the PDF, to the address it was bought or issued with, or to `to`: a
+ * corrected address, which then replaces it on every ticket in the order (so
+ * later resends go there too). The change is in the audit log.
  */
-export const resendTickets = async (code, by) => {
-    const ticket = await prisma.ticket.findUnique({ where: { code } });
-    if (!ticket) throw new AppError('We could not find that ticket.', 404);
+export const resendTickets = async (code, by, { to } = {}) => {
+    const found = await prisma.ticket.findUnique({ where: { code } });
+    if (!found) throw new AppError('We could not find that ticket.', 404);
+    const address = to?.trim().toLowerCase();
+    const ticket = address && address !== found.email ? { ...found, email: address } : found;
     if (!ticket.email) throw new AppError('This ticket has no email address to send it to.', 409, { code: 'no_email' });
     if (!isMailConfigured()) throw new AppError("Email isn't set up on the server yet, so nothing can be sent.", 409, { code: 'mail_off' });
     const [event, order, all] = await Promise.all([
@@ -119,6 +126,10 @@ export const resendTickets = async (code, by) => {
         prisma.ticket.findMany({ where: { orderRef: ticket.orderRef, status: { not: 'void' } }, orderBy: { code: 'asc' } }),
     ]);
     if (!all.length) throw new AppError('Every ticket in this order is void.', 409, { code: 'all_void' });
+    if (ticket.email !== found.email) {
+        await prisma.ticket.updateMany({ where: { orderRef: ticket.orderRef }, data: { email: ticket.email } });
+        recordChange(by, 'ticket-email-change', code, { email: found.email }, { email: ticket.email, orderRef: ticket.orderRef });
+    }
     try {
         await emailTicketsNow({ event, tickets: all, to: ticket.email, buyerName: ticket.buyerName, reference: ticket.orderRef, totalUGX: order?.totalUGX ?? order?.amountUGX ?? 0, complimentary: ticket.source === 'complimentary' });
     } catch (error) {
