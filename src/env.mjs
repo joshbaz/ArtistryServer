@@ -15,11 +15,6 @@ const envSchema = z.object({
     // api.zeptomail.eu or .in for an account on those data centres.
     ZEPTOMAIL_TOKEN: z.string().min(1).optional(),
     ZEPTOMAIL_API_URL: z.url().default("https://api.zeptomail.com/v1.1/email"),
-    // The fallback: the site's Netlify mail relay (client/netlify/functions/mail-relay.mjs), which sends
-    // through Gmail. Used when there's no ZeptoMail token, or when ZeptoMail refuses an email. The key
-    // is the same long random string set as MAIL_RELAY_KEY in Netlify.
-    MAIL_RELAY_URL: z.url().optional(),
-    MAIL_RELAY_KEY: z.string().min(32, "MAIL_RELAY_KEY must be at least 32 characters").optional(),
     // Else Zoho Mail's SMTP (blocked on DigitalOcean Droplets; a paid Mail plan). Leave the user and
     // password out too and nothing is sent. smtp.zoho.com for a personal account, smtppro.zoho.com for a domain one.
     ZOHO_SMTP_HOST: z.string().default("smtp.zoho.com"),
