@@ -411,15 +411,25 @@ model MaintenancePayout {
 
 // ── Website (Studio › Website and the public pages it feeds) ──
 
-// A message from the public contact form, read in Studio › Overview. Only what the form asks for.
+// A reply the Studio emailed to an enquiry: what was said, by whom, when.
+type EnquiryReply {
+  message String
+  byId    String   @db.ObjectId
+  byName  String
+  sentAt  DateTime
+}
+
+// A message from the public contact form, read in Studio › Overview. Only what the form asks for,
+// plus the replies sent from the Studio.
 model Enquiry {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
   name      String
   email     String
-  subject   String   @default("General enquiry")
+  subject   String         @default("General enquiry")
   message   String
-  read      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  read      Boolean        @default(false)
+  replies   EnquiryReply[]
+  createdAt DateTime       @default(now())
 
   @@index([read])
   @@index([createdAt])

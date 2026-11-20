@@ -23,6 +23,9 @@ const parseAddress = (value) => {
     return m ? { name: m[1].trim(), address: m[2].trim() } : { name: '', address: String(value ?? '').trim() };
 };
 
+/** The team's own mailbox (where replies land): MAIL_REPLY_TO, else the sender's address. */
+export const mailboxAddress = () => parseAddress(env.MAIL_REPLY_TO || from()).address;
+
 /* ZeptoMail */
 
 const ZEPTO_TIMEOUT_MS = 30_000;
@@ -39,7 +42,7 @@ const zeptoError = (status, body) => {
     return error;
 };
 
-const sendWithZepto = async ({ to, subject, text, html, attachments }) => {
+const sendWithZepto = async ({ to, bcc, subject, text, html, attachments }) => {
     const sender = parseAddress(from());
     const replyTo = env.MAIL_REPLY_TO ? parseAddress(env.MAIL_REPLY_TO) : null;
     const response = await fetch(env.ZEPTOMAIL_API_URL, {
@@ -48,6 +51,7 @@ const sendWithZepto = async ({ to, subject, text, html, attachments }) => {
         body: JSON.stringify({
             from: { address: sender.address, ...(sender.name ? { name: sender.name } : {}) },
             to: [{ email_address: { address: to } }],
+            ...(bcc ? { bcc: [{ email_address: { address: bcc } }] } : {}),
             subject,
             ...(html ? { htmlbody: html } : {}),
             ...(text ? { textbody: text } : {}),
@@ -84,10 +88,11 @@ const getTransport = () => {
     return transport;
 };
 
-const sendWithSmtp = async ({ to, subject, text, html, attachments }) => {
+const sendWithSmtp = async ({ to, bcc, subject, text, html, attachments }) => {
     const info = await getTransport().sendMail({
         from: from(),
         to,
+        ...(bcc ? { bcc } : {}),
         subject,
         text,
         html,
@@ -99,7 +104,7 @@ const sendWithSmtp = async ({ to, subject, text, html, attachments }) => {
 
 /**
  * Send one email. Throws on failure so the caller can retry it.
- * @param {{ to: string, subject: string, text: string, html: string, attachments?: { filename: string, content: Buffer, contentType: string }[] }} email
+ * @param {{ to: string, bcc?: string, subject: string, text: string, html: string, attachments?: { filename: string, content: Buffer, contentType: string }[] }} email
  * @returns {Promise<string>} the provider's id for it
  */
 export const sendMail = (email) => (env.ZEPTOMAIL_TOKEN ? sendWithZepto(email) : sendWithSmtp(email));

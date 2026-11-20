@@ -12,3 +12,8 @@ export const enquiryBody = z.object({
 
 /** PATCH enquiries/:id */
 export const readBody = z.object({ read: z.boolean() });
+
+/** POST enquiries/:id/replies */
+export const replyBody = z.object({
+    message: text(5000).pipe(z.string().min(2, 'Write your reply.')),
+});
