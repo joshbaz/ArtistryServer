@@ -8,20 +8,28 @@ import { activePass } from './vip.mjs';
 import { passStatus } from './vipCredits.mjs';
 
 /**
- * The free daily vote (10-voting.md, decision 4). Three checks, all of which
- * must pass:
+ * The free daily vote (10-voting.md, decision 4). A day is a calendar day in
+ * Uganda (EAT, UTC+3, no daylight saving): the vote opens again at midnight
+ * Kampala time, whenever it was last used. Three checks, all of which must
+ * pass:
  *   - the voter: signed in with Google or Apple, one free vote per campaign
- *     every 24 hours;
- *   - the device: one free vote per campaign per 24 hours, whoever is signed
- *     in on it, so one phone can't vote again under a second account;
- *   - the network: at most NETWORK_LIMIT per campaign per 24 hours from one
- *     IP, high enough for a campus or office behind one address.
+ *     per day;
+ *   - the device: one free vote per campaign per day, whoever is signed in
+ *     on it, so one phone can't vote again under a second account;
+ *   - the network: at most NETWORK_LIMIT per campaign per day from one IP,
+ *     high enough for a campus or office behind one address.
  * IPs and device ids are kept only as keyed hashes. A VIP voter has no free
  * vote: their pass's daily votes are given automatically instead
  * (vipCredits.mjs).
  */
 
 const DAY = 24 * 60 * 60 * 1000;
+// Kampala is UTC+3 all year.
+const KAMPALA_OFFSET = 3 * 60 * 60 * 1000;
+/** The midnight (Kampala time) that began the day `now` is in. */
+export const startOfVotingDay = (now = new Date()) => new Date(Math.floor((now.getTime() + KAMPALA_OFFSET) / DAY) * DAY - KAMPALA_OFFSET);
+/** The next midnight, Kampala time: when the next free vote opens. */
+const nextVotingDay = (now = new Date()) => new Date(startOfVotingDay(now).getTime() + DAY);
 const DEVICE_LIMIT = 1;
 const NETWORK_LIMIT = 50;
 
@@ -33,8 +41,9 @@ const used = (nextAt) => new AppError("You've used today's vote in this campaign
 /** When this voter's next free vote in the campaign opens, or null when it's open now. */
 export const nextFreeVoteAt = async (campaignId, memberId) => {
     const slot = await prisma.freeVoteSlot.findUnique({ where: { campaignId_memberId: { campaignId, memberId } } });
-    const next = slot ? new Date(slot.lastVoteAt.getTime() + DAY) : null;
-    return next && next > new Date() ? next : null;
+    const now = new Date();
+    // Used today: it opens at the next midnight.
+    return slot && slot.lastVoteAt >= startOfVotingDay(now) ? nextVotingDay(now) : null;
 };
 
 /**
@@ -65,11 +74,11 @@ const openOrFinished = async (campaignId) => {
 /**
  * Take the voter's free vote for this campaign, if it's theirs to take: a
  * single guarded write, so two taps at once can't both count. Returns false
- * when it was already used in the last 24 hours.
+ * when it was already used today (since midnight, Kampala time).
  */
 const claimSlot = async (campaignId, memberId, now) => {
     const { count } = await prisma.freeVoteSlot.updateMany({
-        where: { campaignId, memberId, lastVoteAt: { lte: new Date(now.getTime() - DAY) } },
+        where: { campaignId, memberId, lastVoteAt: { lt: startOfVotingDay(now) } },
         data: { lastVoteAt: now },
     });
     if (count) return true;
@@ -77,7 +86,7 @@ const claimSlot = async (campaignId, memberId, now) => {
         await prisma.freeVoteSlot.create({ data: { campaignId, memberId, lastVoteAt: now } });
         return true;
     } catch (error) {
-        if (error?.code === 'P2002') return false; // the slot exists and was used within the day
+        if (error?.code === 'P2002') return false; // the slot exists and was used today
         throw error;
     }
 };
@@ -93,7 +102,7 @@ const releaseSlot = (campaignId, memberId, now) =>
 export const castFreeVote = async ({ campaignId, participantId, memberId, ip, deviceId }) => {
     await openForVotes(campaignId, participantId);
     const now = new Date();
-    const since = new Date(now.getTime() - DAY);
+    const since = startOfVotingDay(now);
     const ipHash = hashed('ip', ip || 'unknown');
     const deviceHash = hashed('device', deviceId);
 
@@ -103,11 +112,11 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
         throw new AppError(`You're a VIP voter: your ${pass.dailyVotes} votes are given automatically every day, so there's no free vote to cast.`, 409, { code: 'vip_auto' });
     }
 
-    if (!(await claimSlot(campaignId, memberId, now))) throw used(await nextFreeVoteAt(campaignId, memberId) ?? new Date(now.getTime() + DAY));
+    if (!(await claimSlot(campaignId, memberId, now))) throw used(nextVotingDay(now));
 
     const [fromDevice, fromNetwork] = await Promise.all([
-        prisma.freeVote.count({ where: { campaignId, deviceHash, createdAt: { gt: since } } }),
-        prisma.freeVote.count({ where: { campaignId, ipHash, createdAt: { gt: since } } }),
+        prisma.freeVote.count({ where: { campaignId, deviceHash, createdAt: { gte: since } } }),
+        prisma.freeVote.count({ where: { campaignId, ipHash, createdAt: { gte: since } } }),
     ]);
     if (fromDevice >= DEVICE_LIMIT || fromNetwork >= NETWORK_LIMIT) {
         await releaseSlot(campaignId, memberId, now);
@@ -124,5 +133,5 @@ export const castFreeVote = async ({ campaignId, participantId, memberId, ip, de
 
     invalidateSite('campaigns', { id: campaignId });
     invalidate('admin', ['admin', 'campaigns'], { id: campaignId });
-    return { participantId, added: 1, isVip: false, nextFreeVoteAt: new Date(now.getTime() + DAY).toISOString() };
+    return { participantId, added: 1, isVip: false, nextFreeVoteAt: nextVotingDay(now).toISOString() };
 };
